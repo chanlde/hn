@@ -1,0 +1,61 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/mapParent"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/transparent">
+
+    <LinearLayout
+        android:id="@+id/drawingToolbar"
+        android:layout_width="50dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:layout_gravity="center_vertical|start"
+        android:layout_marginStart="20dp"
+        android:background="#CCFFFFFF"
+        android:padding="4dp">
+
+        <!-- 画笔工具 -->
+        <ImageButton
+            android:id="@+id/penTool"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="2dp"
+            android:padding="8dp"
+            android:scaleType="centerInside" />
+
+        <!-- 矩形工具 -->
+        <ImageButton
+            android:id="@+id/rectangleTool"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="2dp"
+            android:padding="8dp"
+            android:scaleType="centerInside" />
+
+        <!-- 圆形工具 -->
+        <ImageButton
+            android:id="@+id/circleTool"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="2dp"
+            android:padding="8dp"
+            android:scaleType="centerInside" />
+
+        <!-- 删除/清除工具 -->
+        <ImageButton
+            android:id="@+id/deleteTool"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:layout_gravity="center_horizontal"
+            android:padding="8dp"
+            android:scaleType="centerInside" />
+
+    </LinearLayout>
+
+</FrameLayout>

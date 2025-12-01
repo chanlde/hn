@@ -1,0 +1,97 @@
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+apply plugin: 'kotlin-kapt'
+
+android {
+    compileSdkVersion Integer.parseInt(project.ANDROID_COMPILE_SDK_VERSION)
+    namespace 'dji.v5.ux' // 根据你的包名修改
+
+    resourcePrefix "uxsdk_"
+    defaultConfig {
+        minSdkVersion Integer.parseInt(project.ANDROID_MIN_SDK_VERSION)
+        targetSdkVersion Integer.parseInt(project.ANDROID_TARGET_SDK_VERSION)
+        versionCode 1
+        versionName "1.0"
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions{
+        jvmTarget = JavaVersion.VERSION_1_8
+        freeCompilerArgs += ["-Xjvm-default=all"]
+    }
+
+    buildFeatures {
+        viewBinding = true
+        buildConfig = true
+    }
+    buildTypes {
+        debug {
+            buildConfigField "String", "API_KEY", '"debug_key"'
+        }
+        release {
+            debuggable false // 禁用调试符号
+            minifyEnabled false  // 启用代码压缩
+            shrinkResources false
+
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            buildConfigField "String", "API_KEY", '"release_key"'
+        }
+    }
+
+    sourceSets {
+        getByName("main") {
+            jniLibs.srcDir("libs")  // 使用 srcDir 而不是 srcDirs
+        }
+    }
+
+}
+
+dependencies {0
+    implementation project(':network')
+
+
+    implementation deps.annotation
+    implementation deps.appcompat
+    implementation deps.multidex
+    implementation deps.legacySupport
+    implementation deps.recyclerview
+    implementation deps.okio
+    implementation deps.wire
+    implementation deps.constraintLayout
+    implementation deps.lifecycleJava8
+    implementation deps.lifecycleRuntime
+    implementation deps.lifecycleProcess
+    implementation deps.media
+    implementation deps.kotlinLib
+    implementation deps.ktxCore
+    implementation deps.rx3Android
+    implementation deps.wpmzSdk
+    implementation deps.rx3Kt
+    implementation deps.lottie
+    implementation deps.cardview
+    implementation deps.mikepenzCommunityMaterial
+    implementation deps.mikepenzGoogleMaterial
+    implementation deps.mikepenzIconicsViews
+    implementation deps.mikepenzIconicsCore
+    implementation deps.mikepenzIonicons
+    implementation deps.material
+    implementation 'com.github.GrenderG:Toasty:1.5.2'
+    api deps.maplibreTurf
+    api deps.maplibreSdk
+
+
+    api deps.playservicesplaces
+    api deps.playservicesmaps
+    api deps.playserviceslocation
+    api deps.playservicesbase
+
+    compileOnly deps.aircraftProvided
+    implementation deps.aircraft
+    
+    api files('src\\main\\jniLibs\\AMap3DMap_10.1.300_AMapSearch_9.7.4_AMapLocation_6.4.9_20250509.jar')
+
+}
