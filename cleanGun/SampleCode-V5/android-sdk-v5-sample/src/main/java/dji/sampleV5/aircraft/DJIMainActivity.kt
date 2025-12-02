@@ -132,7 +132,6 @@ abstract class DJIMainActivity : AppCompatActivity() {
         updateSearchPrivacyCompliance()
         updateMapPrivacyCompliance()
         checkAndRequestAllFilesAccess()
-
         mqttManager = MqttManager.getInstance()
         fcSnTv = findViewById(R.id.fc_sn_tv)
     }
@@ -142,6 +141,8 @@ abstract class DJIMainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (!Environment.isExternalStorageManager()) {
                 Log.w(TAG, "⚠️ 没有所有文件访问权限，正在请求...")
+
+
                 try {
                     val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
                         data = Uri.parse("package:$packageName")

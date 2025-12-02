@@ -20,6 +20,7 @@ import dji.v5.ux.core.communication.DefaultGlobalPreferences
 import dji.v5.ux.core.communication.GlobalPreferencesManager
 import dji.v5.ux.core.util.UxSharedPreferencesUtil
 import dji.sdk.keyvalue.key.FlightControllerKey
+import dji.v5.ux.sample.showcase.defaultlayout.DefaultLayoutActivity
 
 /**
  * Class Description
@@ -47,6 +48,7 @@ class DJIAircraftMainActivity : DJIMainActivity() {
         UxSharedPreferencesUtil.initialize(this)
         GlobalPreferencesManager.initialize(DefaultGlobalPreferences(this))
         GeoidManager.getInstance().init(this)
+        enableDefaultLayout(DefaultLayoutActivity::class.java)
 
         startRtmpStreaming()
 

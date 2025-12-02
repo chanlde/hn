@@ -132,15 +132,14 @@ class MqttMessageHandler(
         request: UavControlRequest,
         key: String
     ) {
-
-        var response = UavControlResponse(
+        val response = UavControlResponse(
             key = key,
             tid = tid,
             api = "$api_UavControl$key",
             message = "ok",
             result = "TRUE"
         )
-        Log.d(TAG, "📩 vvvvvvvvvvvvvvvvvvvvvv ${request.type}")
+        Log.d(TAG, "📩 222222222222222222 ${response}")
 
         when (request.type) {
             1 -> handleTakeoff(response)

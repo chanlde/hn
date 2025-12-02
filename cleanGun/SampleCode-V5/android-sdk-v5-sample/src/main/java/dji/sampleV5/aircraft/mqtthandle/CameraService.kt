@@ -71,11 +71,11 @@ class CameraService(
     // 录像：KeyStartRecord 和 KeyStopRecord
     // 相机模式：KeyCameraMode
     // 注意：所有 Key 必须指定 ComponentIndexType.FPV 来指定目标相机
-    private val keyStartShootPhoto = KeyTools.createKey(CameraKey.KeyStartShootPhoto, ComponentIndexType.LEFT_OR_MAIN)
-    private val keyStopShootPhoto = KeyTools.createKey(CameraKey.KeyStopShootPhoto, ComponentIndexType.LEFT_OR_MAIN)
-    private val keyStartRecord = KeyTools.createKey(CameraKey.KeyStartRecord, ComponentIndexType.LEFT_OR_MAIN)
-    private val keyStopRecord = KeyTools.createKey(CameraKey.KeyStopRecord, ComponentIndexType.LEFT_OR_MAIN)
-    private val keyCameraMode = KeyTools.createKey(CameraKey.KeyCameraMode, ComponentIndexType.LEFT_OR_MAIN)
+    private val keyStartShootPhoto = KeyTools.createKey(CameraKey.KeyStartShootPhoto)
+    private val keyStopShootPhoto = KeyTools.createKey(CameraKey.KeyStopShootPhoto)
+    private val keyStartRecord = KeyTools.createKey(CameraKey.KeyStartRecord)
+    private val keyStopRecord = KeyTools.createKey(CameraKey.KeyStopRecord)
+    private val keyCameraMode = KeyTools.createKey(CameraKey.KeyCameraMode)
 
     // IMediaManager
     private val mediaManager: IMediaManager = MediaDataCenter.getInstance().mediaManager
@@ -300,12 +300,12 @@ class CameraService(
             availableCameras
         } else {
              LogManager.log(TAG, "⚠️ 未检测到可用摄像头，使用默认列表")
-            listOf(ComponentIndexType.LEFT_OR_MAIN, ComponentIndexType.LEFT_OR_MAIN)
+            listOf(ComponentIndexType.FPV, ComponentIndexType.FPV)
         }
 
         val dataSource = MediaFileListDataSource.Builder()
-            .setLocation(CameraStorageLocation.SDCARD)
-            .setIndexType(ComponentIndexType.LEFT_OR_MAIN)
+            .setLocation(CameraStorageLocation.INTERNAL)
+            .setIndexType(ComponentIndexType.FPV)
             .build()
 
         mediaManager.setMediaFileDataSource(dataSource)
@@ -720,24 +720,23 @@ class CameraService(
                 LogManager.log(TAG, "   类型: $fileType")
                 LogManager.log(TAG, "========================================")
 
-//                // 使用协程上传
-//                uploadScope.launch {  // 或 viewModelScope.launch
-//                    minioUploader.uploadFile(
-//                        filePath = targetFile.absolutePath,
-//                        bucketName = BUCKET_NAME,
-//                        objectName = "dji/${targetFile.name}",
-//                        contentType = "application/octet-stream",  // 可根据文件类型修改
-//                        onSuccess = { fileUrl: String ->  // 明确指定回调的参数类型为 String
-//                            LogManager.log(TAG, "✅ 文件上传成功: ${targetFile.name}")
-//                            LogManager.log(TAG, "   访问地址: $fileUrl")
-//                            // TODO: 可以将 fileUrl 保存到数据库或发送给后端
-//                        },
-//                        onFailure = { error: String ->  // 明确指定回调的参数类型为 String
-//                            LogManager.log(TAG, "❌ 文件上传失败: ${targetFile.name}, 错误: $error")
-//                            // TODO: 可以实现失败重试机制
-//                        }
-//                    )
-//                }
+                // 使用协程上传
+                uploadScope.launch {  // 或 viewModelScope.launch
+                    minioUploader.uploadFile(
+                        filePath = targetFile.absolutePath,
+                        bucketName = BUCKET_NAME,
+                        objectName = "dji/${targetFile.name}",
+                        onSuccess = { fileUrl: String ->  // 明确指定回调的参数类型为 String
+                            LogManager.log(TAG, "✅ 文件上传成功: ${targetFile.name}")
+                            LogManager.log(TAG, "   访问地址: $fileUrl")
+                            // TODO: 可以将 fileUrl 保存到数据库或发送给后端
+                        },
+                        onFailure = { error: String ->  // 明确指定回调的参数类型为 String
+                            LogManager.log(TAG, "❌ 文件上传失败: ${targetFile.name}, 错误: $error")
+                            // TODO: 可以实现失败重试机制
+                        }
+                    )
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "移动文件失败: ${e.message}", e)
@@ -751,21 +750,49 @@ class CameraService(
      */
     fun takePhoto(response: UavControlResponse) {
 
-        testFileUpload(minioUploader)
+        //testFileUpload(minioUploader)
 
-//        if (currentMissionFolderPath == null) {
-//            Log.w(TAG, "未设置任务文件夹路径，无法保存照片")
-//            response.message = "未设置任务文件夹路径"
-//            response.result = "FALSE"
-//            sendResponse(response)
-//            return
-//        }
-//
-//         LogManager.log(TAG, "========================================")
-//         LogManager.log(TAG, "📸 准备拍照")
-//         LogManager.log(TAG, "🔄 步骤1: 切换相机模式到拍照模式...")
-//         LogManager.log(TAG, "========================================")
-//
+        if (currentMissionFolderPath == null) {
+            Log.w(TAG, "未设置任务文件夹路径，无法保存照片")
+            response.message = "未设置任务文件夹路径"
+            response.result = "FALSE"
+            sendResponse(response)
+            return
+        }
+
+         LogManager.log(TAG, "========================================")
+         LogManager.log(TAG, "📸 准备拍照")
+         LogManager.log(TAG, "🔄 步骤1: 切换相机模式到拍照模式...")
+         LogManager.log(TAG, "========================================")
+
+
+        KeyManager.getInstance().performAction(keyStartShootPhoto, object : CommonCallbacks.CompletionCallbackWithParam<EmptyMsg> {
+            override fun onSuccess(t: EmptyMsg) {
+                LogManager.log(TAG, "========================================")
+                LogManager.log(TAG, "📸 拍照命令执行成功")
+                LogManager.log(TAG, "========================================")
+                response.message = "拍照命令执行成功"
+                response.result = "TRUE"
+                sendResponse(response)
+
+                // 拍照成功后，延迟2秒刷新文件列表（给相机时间保存文件）
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    LogManager.log(TAG, "🔄 拍照完成，开始刷新文件列表...")
+                    pullMediaFileList()
+                }, 2000)
+            }
+
+            override fun onFailure(error: IDJIError) {
+                LogManager.log(TAG, "========================================")
+                LogManager.log(TAG, "❌ 拍照失败")
+                LogManager.log(TAG, "   错误描述: ${error.description()}")
+                LogManager.log(TAG, "   错误码: ${error.errorCode()}")
+                LogManager.log(TAG, "========================================")
+                response.message = "拍照失败: ${error.description() ?: "未知错误"}"
+                response.result = "FALSE"
+                sendResponse(response)
+            }
+        })
 //        // 先切换到拍照模式
 //        KeyManager.getInstance().setValue(keyCameraMode, CameraMode.PHOTO_NORMAL, object : CommonCallbacks.CompletionCallback {
 //            override fun onSuccess() {

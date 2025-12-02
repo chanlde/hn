@@ -66,23 +66,6 @@ class MinioUploader {
             )
             LogManager.log(TAG, "✔️ 文件上传成功：$objectName")
 
-            // 3. 生成7天有效的预签名链接（即使 bucket 是 PRIVATE 也能直接点开！）
-            val presignedUrl = minioClient.getPresignedObjectUrl(
-                GetPresignedObjectUrlArgs.builder()
-                    .method(Method.GET)
-                    .bucket(bucketName)
-                    .`object`(objectName)
-                    .expiry(7 * 24 * 3600)   // 7天
-                    .build()
-            )
-
-            // 打印上传成功信息
-            LogManager.log(TAG, "🎉 文件上传成功！")
-            LogManager.log(TAG, "🎯 上传成功，7天有效的链接已生成")
-
-            // 不打印签名链接
-            onSuccess("上传成功，链接生成，但不显示链接。")
-
         } catch (e: Exception) {
             LogManager.log(TAG, "❌ 上传失败: ${e.message}")
             onFailure(e.message ?: "上传失败")
