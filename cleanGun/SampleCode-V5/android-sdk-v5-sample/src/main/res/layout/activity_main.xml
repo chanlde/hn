@@ -50,32 +50,8 @@
             </LinearLayout>
 
             <!-- 圆角图片轮播容器 -->
-<!--            <androidx.cardview.widget.CardView-->
-<!--                android:id="@+id/image_card"-->
-<!--                android:layout_width="0dp"-->
-<!--                android:layout_height="0dp"-->
-<!--                android:layout_marginStart="24dp"-->
-<!--                android:layout_marginTop="20dp"-->
-<!--                android:layout_marginEnd="24dp"-->
-<!--                android:layout_marginBottom="24dp"-->
-<!--                app:cardCornerRadius="16dp"-->
-<!--                app:cardElevation="4dp"-->
-<!--                app:layout_constraintBottom_toBottomOf="parent"-->
-<!--                app:layout_constraintEnd_toEndOf="parent"-->
-<!--                app:layout_constraintStart_toStartOf="parent"-->
-<!--                app:layout_constraintTop_toBottomOf="@+id/top_header">-->
-
-<!--                <ImageView-->
-<!--                    android:id="@+id/app_logo2"-->
-<!--                    android:layout_width="match_parent"-->
-<!--                    android:layout_height="match_parent"-->
-<!--                    android:scaleType="centerCrop"-->
-<!--                    android:src="@drawable/activity_bg1" />-->
-<!--            </androidx.cardview.widget.CardView>-->
-            <!-- 圆角日志显示容器 -->
-            <!-- 圆角日志显示容器 -->
             <androidx.cardview.widget.CardView
-                android:id="@+id/log_card"
+                android:id="@+id/image_card"
                 android:layout_width="0dp"
                 android:layout_height="0dp"
                 android:layout_marginStart="24dp"
@@ -89,14 +65,39 @@
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toBottomOf="@+id/top_header">
 
-                <!-- 使用 RecyclerView 替代 ScrollView -->
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/logRecyclerView"
+                <ImageView
+                    android:id="@+id/app_logo2"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:padding="8dp" />
-
+                    android:scaleType="centerCrop"
+                    android:src="@drawable/activity_bg1" />
             </androidx.cardview.widget.CardView>
+
+            <!-- 圆角日志显示容器 -->
+            <!-- 圆角日志显示容器 -->
+<!--            <androidx.cardview.widget.CardView-->
+<!--                android:id="@+id/log_card"-->
+<!--                android:layout_width="0dp"-->
+<!--                android:layout_height="0dp"-->
+<!--                android:layout_marginStart="24dp"-->
+<!--                android:layout_marginTop="20dp"-->
+<!--                android:layout_marginEnd="24dp"-->
+<!--                android:layout_marginBottom="24dp"-->
+<!--                app:cardCornerRadius="16dp"-->
+<!--                app:cardElevation="4dp"-->
+<!--                app:layout_constraintBottom_toBottomOf="parent"-->
+<!--                app:layout_constraintEnd_toEndOf="parent"-->
+<!--                app:layout_constraintStart_toStartOf="parent"-->
+<!--                app:layout_constraintTop_toBottomOf="@+id/top_header">-->
+
+<!--                &lt;!&ndash; 使用 RecyclerView 替代 ScrollView &ndash;&gt;-->
+<!--                <androidx.recyclerview.widget.RecyclerView-->
+<!--                    android:id="@+id/logRecyclerView"-->
+<!--                    android:layout_width="match_parent"-->
+<!--                    android:layout_height="match_parent"-->
+<!--                    android:padding="8dp" />-->
+
+<!--            </androidx.cardview.widget.CardView>-->
 
 
 

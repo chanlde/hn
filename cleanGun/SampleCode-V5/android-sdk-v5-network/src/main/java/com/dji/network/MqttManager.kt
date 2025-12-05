@@ -22,7 +22,7 @@ class MqttManager private constructor(private val config: MQTTConfig) {
     companion object {
         @Volatile
         private var INSTANCE: MqttManager? = null
-        val defaultConfig = MQTTConfig.fromCustom()
+        val defaultConfig = MQTTConfig.default()
 
         fun getInstance(): MqttManager {
             return INSTANCE ?: synchronized(this) {

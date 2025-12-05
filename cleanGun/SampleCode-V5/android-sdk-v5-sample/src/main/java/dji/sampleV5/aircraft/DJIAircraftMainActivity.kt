@@ -1,15 +1,7 @@
 package dji.sampleV5.aircraft
 
 import android.util.Log
-import android.widget.TextView
-import androidx.activity.viewModels
-import androidx.lifecycle.Observer
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
-import dji.sampleV5.aircraft.log.LogAdapter
-import dji.sampleV5.aircraft.log.LogManager
-import dji.sampleV5.aircraft.log.LogViewModel
-import dji.sampleV5.aircraft.util.GeneralUtils.rtmpUrl
+import com.dji.network.GeneralUtils.rtmpUrl
 import dji.sampleV5.aircraft.video.streamer.FpvRtmpStreamer
 import dji.sdk.keyvalue.key.KeyTools
 import dji.v5.common.callback.CommonCallbacks
@@ -34,14 +26,12 @@ class DJIAircraftMainActivity : DJIMainActivity() {
     private val TAG = "DJIAircraftMainActivity"
 
     private var rtmpStreamer: FpvRtmpStreamer? = null
-
-    //private var fcSn: String = "1581F6GKB24C400408TU"
     private var fcSn: String = ""
 
-    private lateinit var logTextView: TextView
-    private lateinit var recyclerView: RecyclerView
-    private lateinit var logAdapter: LogAdapter
-    private val logViewModel: LogViewModel by viewModels()
+//    private lateinit var logTextView: TextView
+//    private lateinit var recyclerView: RecyclerView
+//    private lateinit var logAdapter: LogAdapter
+//    private val logViewModel: LogViewModel by viewModels()
 
     override fun prepareUxActivity() {
 
@@ -51,34 +41,17 @@ class DJIAircraftMainActivity : DJIMainActivity() {
         enableDefaultLayout(DefaultLayoutActivity::class.java)
 
         startRtmpStreaming()
-
-        // 初始化 RecyclerView 和适配器
-        recyclerView = findViewById(R.id.logRecyclerView)
-        logAdapter = LogAdapter(mutableListOf())  // 传入一个空的日志列表
-        recyclerView.layoutManager = LinearLayoutManager(this)
-        recyclerView.adapter = logAdapter
-
-        // 观察 LiveData 中的日志数据，并更新 RecyclerView
-        logViewModel.logData.observe(this, Observer { logs ->
-            logAdapter.updateLogs(logs)  // 更新适配器中的日志
-        })
-
-        // 示例：模拟日志输出
-        // 可以通过调用 LogManager.log() 来输出日志并自动更新 RecyclerView
-        LogManager.log("MainActivity", "应用启动了")
-        LogManager.log("MainActivity", "加载数据中...")
-        LogManager.log("MainActivity", "数据加载完成")
-    }
-
-    // 更新 UI 中的日志
-    private fun logToUI(message: String) {
-        val currentText = logTextView.text.toString()
-        logTextView.text = "$currentText\n$message"  // 在现有日志后追加新日志
-
-        // 可选：自动滚动到底部
-        logTextView.post {
-            logTextView.scrollTo(0, logTextView.bottom)
-        }
+//
+//        // 初始化 RecyclerView 和适配器
+//        recyclerView = findViewById(R.id.logRecyclerView)
+//        logAdapter = LogAdapter(mutableListOf())  // 传入一个空的日志列表
+//        recyclerView.layoutManager = LinearLayoutManager(this)
+//        recyclerView.adapter = logAdapter
+//
+//        // 观察 LiveData 中的日志数据，并更新 RecyclerView
+//        logViewModel.logData.observe(this, Observer { logs ->
+//            logAdapter.updateLogs(logs)  // 更新适配器中的日志
+//        })
     }
 
     override fun getFcSn():String {

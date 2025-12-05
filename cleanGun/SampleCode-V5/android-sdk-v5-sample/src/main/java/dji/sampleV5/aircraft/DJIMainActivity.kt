@@ -25,7 +25,6 @@ import android.widget.TextView
 import android.widget.Toast
 import com.amap.api.maps.MapsInitializer
 import com.amap.api.services.core.ServiceSettings
-import com.dji.network.MQTTConfig
 import com.tji.network.MqttManager
 import dji.sampleV5.aircraft.mqtthandle.CameraService
 import dji.sampleV5.aircraft.mqtthandle.FlightControlService
@@ -34,12 +33,9 @@ import dji.sampleV5.aircraft.mqtthandle.LandingConfirmationListener
 import dji.sampleV5.aircraft.mqtthandle.MissionControlService
 import dji.sampleV5.aircraft.mqtthandle.MqttMessageHandler
 import dji.sampleV5.aircraft.mqtthandle.TaskService
-import dji.sampleV5.aircraft.util.GeneralUtils.fcDeviceId
+import com.dji.network.ConfigManager
+import com.dji.network.ConfigManager.fcDeviceId
 
-import dji.sdk.keyvalue.key.KeyTools
-import dji.sdk.keyvalue.key.ProductKey
-
-import dji.v5.common.utils.RxUtil.getValue
 import dji.v5.ux.sample.showcase.defaultlayout.DefaultLayoutActivity
 
 
@@ -84,11 +80,6 @@ abstract class DJIMainActivity : AppCompatActivity() {
     // 创建所有服务实例
     private lateinit var mqttManager: MqttManager
 
-    // 设备ID（遥控器序列号）
-    //val deviceId = "1581F6GKB24C400408TU"
-
-    //var deviceId = "123456"  // TODO: 从配置或SDK动态获取
-
     val taskService = TaskService(this)
     val flightControlService = FlightControlService()
     val missionControlService = MissionControlService()
@@ -112,6 +103,7 @@ abstract class DJIMainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        ConfigManager.init(this)
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -132,7 +124,9 @@ abstract class DJIMainActivity : AppCompatActivity() {
         updateSearchPrivacyCompliance()
         updateMapPrivacyCompliance()
         checkAndRequestAllFilesAccess()
+
         mqttManager = MqttManager.getInstance()
+
         fcSnTv = findViewById(R.id.fc_sn_tv)
     }
 
@@ -193,24 +187,24 @@ abstract class DJIMainActivity : AppCompatActivity() {
                     val sn = getFcSn()
                     Log.d("MainActivity", "sn: $sn $fcDeviceId")
 
-                    prepareUxActivity()
-                    landingConfirmationListener = LandingConfirmationListener()
-                    cameraService.initialize()
+                    if (sn.equals(fcDeviceId))
+                        prepareUxActivity()
+                        landingConfirmationListener = LandingConfirmationListener()
+                        cameraService.initialize()
 
-                    mqttManager.connect (
-                        onConnected = {
-                            messageHandler.setupSubscriptions(mqttManager, fcDeviceId)
-                            // 创建飞行数据上报服务
-                            flightDataReport = FlightDataReport(fcDeviceId)
-                        },
+                        mqttManager.connect (
+                            onConnected = {
+                                messageHandler.setupSubscriptions(mqttManager, fcDeviceId)
+                                // 创建飞行数据上报服务
+                                flightDataReport = FlightDataReport(fcDeviceId)
+                            },
 
-                        onFailed = { throwable ->
-                            Log.d("MqttManager", "Failed to connect: ${throwable.message}")
-                        }
-                    )
-
-
-                    //startActivity(Intent(this, DefaultLayoutActivity::class.java))
+                            onFailed = { throwable ->
+                                Log.d("MqttManager", "Failed to connect: ${throwable.message}")
+                            }
+                        )
+                         startActivity(Intent(this, DefaultLayoutActivity::class.java))
+//                    }
 
                 }, 1000)
 

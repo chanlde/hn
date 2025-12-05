@@ -2,11 +2,9 @@ package dji.sampleV5.aircraft.mqtthandle
 
 import MinioUploader
 import android.content.Context
-import android.os.Environment
 import android.util.Log
 import dji.sampleV5.aircraft.data.UavControlResponse
-import dji.sampleV5.aircraft.log.LogManager
-import dji.sampleV5.aircraft.util.GeneralUtils.BUCKET_NAME
+import com.dji.network.GeneralUtils.BUCKET_NAME
 
 import dji.sampleV5.aircraft.util.sendResponse
 import dji.sdk.keyvalue.key.CameraKey
@@ -71,11 +69,11 @@ class CameraService(
     // 录像：KeyStartRecord 和 KeyStopRecord
     // 相机模式：KeyCameraMode
     // 注意：所有 Key 必须指定 ComponentIndexType.FPV 来指定目标相机
-    private val keyStartShootPhoto = KeyTools.createKey(CameraKey.KeyStartShootPhoto)
-    private val keyStopShootPhoto = KeyTools.createKey(CameraKey.KeyStopShootPhoto)
-    private val keyStartRecord = KeyTools.createKey(CameraKey.KeyStartRecord)
-    private val keyStopRecord = KeyTools.createKey(CameraKey.KeyStopRecord)
-    private val keyCameraMode = KeyTools.createKey(CameraKey.KeyCameraMode)
+    private val keyStartShootPhoto = KeyTools.createKey(CameraKey.KeyStartShootPhoto,ComponentIndexType.LEFT_OR_MAIN)
+    private val keyStopShootPhoto = KeyTools.createKey(CameraKey.KeyStopShootPhoto,ComponentIndexType.LEFT_OR_MAIN)
+    private val keyStartRecord = KeyTools.createKey(CameraKey.KeyStartRecord,ComponentIndexType.LEFT_OR_MAIN)
+    private val keyStopRecord = KeyTools.createKey(CameraKey.KeyStopRecord,ComponentIndexType.LEFT_OR_MAIN)
+    private val keyCameraMode = KeyTools.createKey(CameraKey.KeyCameraMode,ComponentIndexType.LEFT_OR_MAIN)
 
     // IMediaManager
     private val mediaManager: IMediaManager = MediaDataCenter.getInstance().mediaManager
@@ -108,9 +106,9 @@ class CameraService(
             return
         }
 
-         LogManager.log(TAG, "========================================")
-         LogManager.log(TAG, "🚀 开始初始化 CameraService")
-         LogManager.log(TAG, "========================================")
+         Log.d(TAG, "========================================")
+         Log.d(TAG, "🚀 开始初始化 CameraService")
+         Log.d(TAG, "========================================")
 
         // 不需要启用 MediaManager，直接设置数据源和监听器
         // MediaManager 应该已经由 SDK 自动管理了
@@ -125,68 +123,11 @@ class CameraService(
             setupMediaFileListener()
 
             isInitialized = true
-             LogManager.log(TAG, "✅ CameraService 初始化完成")
+             Log.d(TAG, "✅ CameraService 初始化完成")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ CameraService 初始化失败: ${e.message}", e)
+            Log.d(TAG, "❌ CameraService 初始化失败: ${e.message}")
         }
         setupDownloadPath()
-       // testMinioUpload()
-    }
-
-    fun testFileUpload(minioUploader: MinioUploader) {
-        Log.e("MINIO_TEST", "════════════════════════════════════")
-        Log.e("MINIO_TEST", "         开始执行 testFileUpload()")
-        Log.e("MINIO_TEST", "════════════════════════════════════")
-
-        // 创建一个临时文件用于上传
-        val targetFile = File(context.filesDir, "minio_test_${System.currentTimeMillis()}.txt")
-        Log.e("MINIO_TEST", "准备创建测试文件")
-        Log.e("MINIO_TEST", "文件路径: ${targetFile.absolutePath}")
-
-        // 确保父目录存在（其实 filesDir 肯定存在，但保险）
-        targetFile.parentFile?.mkdirs()
-        Log.e("MINIO_TEST", "确保父目录已创建")
-
-        // 写入内容
-        targetFile.writeText("DJI MinIO 上传测试文件\n时间: ${System.currentTimeMillis()}")
-        Log.e("MINIO_TEST", "测试文件写入成功！")
-        Log.e("MINIO_TEST", "文件大小: ${targetFile.length()} bytes")
-
-        Log.e("MINIO_TEST", "准备启动协程 uploadScope.launch {}")
-        Log.e("MINIO_TEST", "当前线程: ${Thread.currentThread().name}")
-
-        // 直接在协程中执行上传操作
-        uploadScope.launch {
-            Log.e("MINIO_TEST", "协程已启动！现在进入 uploadScope.launch 块")
-            Log.e("MINIO_TEST", "即将调用 minioUploader.uploadFile()")
-            Log.e("MINIO_TEST", "上传文件路径: ${targetFile.absolutePath}")
-
-            try {
-                minioUploader.uploadFile(
-                    filePath = targetFile.absolutePath,
-                    bucketName = BUCKET_NAME,
-                    objectName = "dji/${targetFile.name}",
-                    onSuccess = { fileUrl ->
-                        Log.e("MINIO_TEST", "回调成功！")
-                        Log.e("MINIO_TEST", "文件上传成功: ${targetFile.name}")
-                        Log.e("MINIO_TEST", "访问地址: $fileUrl")
-                    },
-                    onFailure = { error ->
-                        Log.e("MINIO_TEST", "回调失败！")
-                        Log.e("MINIO_TEST", "文件上传失败: ${targetFile.name}")
-                        Log.e("MINIO_TEST", "错误信息: $error")
-                    }
-                )
-                Log.e("MINIO_TEST", "uploadFile() 调用完毕（不管成功失败都走到这里）")
-            } catch (e: Exception) {
-                Log.e("MINIO_TEST", "uploadFile() 调用时发生未捕获异常！", e)
-            }
-        }
-
-        Log.e("MINIO_TEST", "uploadScope.launch {} 已提交，函数即将返回")
-        Log.e("MINIO_TEST", "════════════════════════════════════")
-        Log.e("MINIO_TEST", "         testFileUpload() 执行结束")
-        Log.e("MINIO_TEST", "════════════════════════════════════")
     }
 
     private fun setupDownloadPath() {
@@ -197,9 +138,9 @@ class CameraService(
         if (!baseFolder.exists()) {
             val created = baseFolder.mkdirs()
             if (created) {
-                LogManager.log(TAG, "✅ 创建 Camera 目录成功: $baseDir")
+                Log.d(TAG, "✅ 创建 Camera 目录成功: $baseDir")
             } else {
-                LogManager.log(TAG, "❌ 创建 Camera 目录失败: $baseDir")
+                Log.d(TAG, "❌ 创建 Camera 目录失败: $baseDir")
                 return
             }
         }
@@ -219,15 +160,15 @@ class CameraService(
         if (!missionFolder.exists()) {
             val created = missionFolder.mkdirs()
             if (created) {
-                LogManager.log(TAG, "✅ 创建任务文件夹成功: $missionFolderPath")
+                Log.d(TAG, "✅ 创建任务文件夹成功: $missionFolderPath")
             } else {
-                LogManager.log(TAG, "❌ 创建任务文件夹失败: $missionFolderPath")
+                Log.d(TAG, "❌ 创建任务文件夹失败: $missionFolderPath")
                 return
             }
         }
         // 设置当前任务文件夹路径
         currentMissionFolderPath = missionFolderPath
-        LogManager.log(TAG, "📁 当前任务文件夹: $currentMissionFolderPath")
+        Log.d(TAG, "📁 当前任务文件夹: $currentMissionFolderPath")
         // 例如: /storage/emulated/0/Camera/Mission_20231127_143052
     }
 
@@ -239,7 +180,7 @@ class CameraService(
         currentMissionFolderPath = folderPath
         // 清除已处理文件记录，避免处理旧文件
         clearProcessedFiles()
-         LogManager.log(TAG, "设置任务文件夹路径: $folderPath")
+         Log.d(TAG, "设置任务文件夹路径: $folderPath")
     }
 
     /**
@@ -248,7 +189,7 @@ class CameraService(
      */
     fun clearMissionFolderPath() {
         currentMissionFolderPath = null
-         LogManager.log(TAG, "清除任务文件夹路径")
+         Log.d(TAG, "清除任务文件夹路径")
     }
 
     /**mei
@@ -257,12 +198,12 @@ class CameraService(
     private fun setupCameraListener() {
         availableCameraListener = object : ICameraStreamManager.AvailableCameraUpdatedListener {
             override fun onAvailableCameraUpdated(availableCameraList: List<ComponentIndexType>) {
-                 LogManager.log(TAG, "========================================")
-                 LogManager.log(TAG, "📹 可用摄像头列表更新: ${availableCameraList.size} 个")
+                 Log.d(TAG, "========================================")
+                 Log.d(TAG, "📹 可用摄像头列表更新: ${availableCameraList.size} 个")
                 availableCameraList.forEachIndexed { index, camera ->
-                     LogManager.log(TAG, "   [$index] $camera")
+                     Log.d(TAG, "   [$index] $camera")
                 }
-                 LogManager.log(TAG, "========================================")
+                 Log.d(TAG, "========================================")
 
                 availableCameras = availableCameraList
 
@@ -273,16 +214,16 @@ class CameraService(
             }
 
             override fun onCameraStreamEnableUpdate(cameraStreamEnableMap: Map<ComponentIndexType, Boolean>) {
-                 LogManager.log(TAG, "📹 摄像头流状态更新:")
+                 Log.d(TAG, "📹 摄像头流状态更新:")
                 cameraStreamEnableMap.forEach { (camera, enabled) ->
-                     LogManager.log(TAG, "   $camera: ${if (enabled) "启用" else "禁用"}")
+                     Log.d(TAG, "   $camera: ${if (enabled) "启用" else "禁用"}")
                 }
             }
         }
 
         // 注册监听器
         cameraStreamManager.addAvailableCameraUpdatedListener(availableCameraListener!!)
-         LogManager.log(TAG, "✅ 摄像头监听器已注册")
+         Log.d(TAG, "✅ 摄像头监听器已注册")
 
     }
 
@@ -291,45 +232,40 @@ class CameraService(
      * 指定要访问的相机和存储位置
      */
     private fun setupMediaDataSource() {
-         LogManager.log(TAG, "========================================")
-         LogManager.log(TAG, "🔧 开始设置媒体文件数据源")
+         Log.d(TAG, "========================================")
+         Log.d(TAG, "🔧 开始设置媒体文件数据源")
 
         // 优先使用检测到的可用摄像头
         val camerasToTry = if (availableCameras.isNotEmpty()) {
-             LogManager.log(TAG, "📹 使用检测到的可用摄像头: $availableCameras")
+             Log.d(TAG, "📹 使用检测到的可用摄像头: $availableCameras")
             availableCameras
         } else {
-             LogManager.log(TAG, "⚠️ 未检测到可用摄像头，使用默认列表")
+             Log.d(TAG, "⚠️ 未检测到可用摄像头，使用默认列表")
             listOf(ComponentIndexType.FPV, ComponentIndexType.FPV)
         }
 
         val dataSource = MediaFileListDataSource.Builder()
-            .setLocation(CameraStorageLocation.INTERNAL)
-            .setIndexType(ComponentIndexType.FPV)
+            .setLocation(CameraStorageLocation.SDCARD)
+            .setIndexType(ComponentIndexType.LEFT_OR_MAIN)
             .build()
 
         mediaManager.setMediaFileDataSource(dataSource)
 
         // 验证设置是否成功 - 使用刚创建的 dataSource 对象
-         LogManager.log(TAG, "✅ 数据源设置成功！")
-         LogManager.log(TAG, "   存储位置: ${dataSource.storageLocation}")
-         LogManager.log(TAG, "   相机索引: ${dataSource.componentIndexType}")
+         Log.d(TAG, "✅ 数据源设置成功！")
+         Log.d(TAG, "   存储位置: ${dataSource.storageLocation}")
+         Log.d(TAG, "   相机索引: ${dataSource.componentIndexType}")
 
-
-
-         LogManager.log(TAG, "========================================")
+         Log.d(TAG, "========================================")
     }
 
     /**
      * 手动重新设置数据源（调试用）
      */
     fun manualSetupDataSource() {
-         LogManager.log(TAG, "🔧🔧🔧 手动触发数据源设置 🔧🔧🔧")
+         Log.d(TAG, "🔧🔧🔧 手动触发数据源设置 🔧🔧🔧")
         setupMediaDataSource()
     }
-
-
-
 
     /**
      * 设置媒体文件监听器
@@ -337,30 +273,30 @@ class CameraService(
      * 当状态变为 UP_TO_DATE 时，说明有新文件生成，需要获取文件列表并处理新文件
      */
     private fun setupMediaFileListener() {
-         LogManager.log(TAG, "======== 开始设置媒体文件监听器 ========")
+         Log.d(TAG, "======== 开始设置媒体文件监听器 ========")
 
         mediaFileListStateListener = object : MediaFileListStateListener {
             override fun onUpdate(state: MediaFileListState) {
-                 LogManager.log(TAG, "========================================")
-                 LogManager.log(TAG, "📸 媒体文件列表状态变化: $state")
-                 LogManager.log(TAG, "========================================")
+                 Log.d(TAG, "========================================")
+                 Log.d(TAG, "📸 媒体文件列表状态变化: $state")
+                 Log.d(TAG, "========================================")
 
                 when (state) {
                     MediaFileListState.UP_TO_DATE -> {
-                         LogManager.log(TAG, "✅ 文件列表已更新，开始处理新文件")
+                         Log.d(TAG, "✅ 文件列表已更新，开始处理新文件")
                         // 文件列表已更新，获取新文件并移动到任务文件夹
                         handleNewMediaFiles()
                     }
                     MediaFileListState.UPDATING -> {
                         // 文件列表正在更新中
-                         LogManager.log(TAG, "⏳ 媒体文件列表更新中...")
+                         Log.d(TAG, "⏳ 媒体文件列表更新中...")
                     }
                     MediaFileListState.IDLE -> {
                         // 空闲状态，但不自动拉取
-                         LogManager.log(TAG, "💤 媒体文件列表为空闲状态")
+                         Log.d(TAG, "💤 媒体文件列表为空闲状态")
                     }
                     else -> {
-                         LogManager.log(TAG, "❓ 未知状态: $state")
+                         Log.d(TAG, "❓ 未知状态: $state")
                     }
                 }
             }
@@ -368,14 +304,14 @@ class CameraService(
 
         // 注册监听器
         mediaManager.addMediaFileListStateListener(mediaFileListStateListener)
-         LogManager.log(TAG, "✅ 媒体文件列表状态监听器已注册")
+         Log.d(TAG, "✅ 媒体文件列表状态监听器已注册")
 
         // 获取当前状态
         val currentState = mediaManager.getMediaFileListState()
-         LogManager.log(TAG, "📊 当前媒体文件列表状态: $currentState")
+         Log.d(TAG, "📊 当前媒体文件列表状态: $currentState")
 
         // 初始化时标记所有旧文件为已处理（避免下载旧照片）
-         LogManager.log(TAG, "🔄 拉取文件列表并标记旧文件...")
+         Log.d(TAG, "🔄 拉取文件列表并标记旧文件...")
         markExistingFilesAsProcessed()
     }
 
@@ -401,14 +337,14 @@ class CameraService(
                         }
                     }
 
-                     LogManager.log(TAG, "✅ 已标记 ${processedFiles.size} 个旧文件为已处理，不会下载")
+                     Log.d(TAG, "✅ 已标记 ${processedFiles.size} 个旧文件为已处理，不会下载")
                 } catch (e: Exception) {
-                    Log.e(TAG, "⚠️ 标记旧文件失败: ${e.message}")
+                    Log.d(TAG, "⚠️ 标记旧文件失败: ${e.message}")
                 }
             }
 
             override fun onFailure(error: IDJIError) {
-                Log.e(TAG, "⚠️ 拉取旧文件列表失败: ${error.description()}")
+                Log.d(TAG, "⚠️ 拉取旧文件列表失败: ${error.description()}")
             }
         })
     }
@@ -417,15 +353,15 @@ class CameraService(
      * 拉取媒体文件列表
      */
     private fun pullMediaFileList() {
-         LogManager.log(TAG, "========================================")
-         LogManager.log(TAG, "🔄 开始拉取媒体文件列表...")
+         Log.d(TAG, "========================================")
+         Log.d(TAG, "🔄 开始拉取媒体文件列表...")
 
         // 诊断信息：检查当前状态
         try {
             val currentState = mediaManager.getMediaFileListState()
-             LogManager.log(TAG, "📊 当前文件列表状态: $currentState")
+             Log.d(TAG, "📊 当前文件列表状态: $currentState")
         } catch (e: Exception) {
-            Log.e(TAG, "⚠️ 获取状态信息失败: ${e.message}")
+            Log.d(TAG, "⚠️ 获取状态信息失败: ${e.message}")
         }
 
         // 创建拉取参数：获取所有类型的文件（照片和视频）
@@ -433,24 +369,24 @@ class CameraService(
             .filter(MediaFileFilter.ALL)
             .build()
 
-         LogManager.log(TAG, "🚀 执行 pullMediaFileListFromCamera...")
+         Log.d(TAG, "🚀 执行 pullMediaFileListFromCamera...")
         mediaManager.pullMediaFileListFromCamera(param, object : CommonCallbacks.CompletionCallback {
             override fun onSuccess() {
-                 LogManager.log(TAG, "✅ 拉取媒体文件列表成功")
+                 Log.d(TAG, "✅ 拉取媒体文件列表成功")
 
                 // 立即检查文件列表
                 val mediaFileListData = mediaManager.getMediaFileListData()
                 val fileCount = mediaFileListData?.getData()?.size ?: 0
-                 LogManager.log(TAG, "📊 当前文件列表中有 $fileCount 个文件")
+                 Log.d(TAG, "📊 当前文件列表中有 $fileCount 个文件")
             }
 
             override fun onFailure(error: IDJIError) {
-                Log.e(TAG, "========================================")
-                Log.e(TAG, "❌ 拉取媒体文件列表失败")
-                Log.e(TAG, "   错误描述: ${error.description()}")
-                Log.e(TAG, "   错误码: ${error.errorCode()}")
-                Log.e(TAG, "   提示: 可能是存储位置或相机索引类型不正确")
-                Log.e(TAG, "========================================")
+                Log.d(TAG, "========================================")
+                Log.d(TAG, "❌ 拉取媒体文件列表失败")
+                Log.d(TAG, "   错误描述: ${error.description()}")
+                Log.d(TAG, "   错误码: ${error.errorCode()}")
+                Log.d(TAG, "   提示: 可能是存储位置或相机索引类型不正确")
+                Log.d(TAG, "========================================")
             }
         })
     }
@@ -460,8 +396,8 @@ class CameraService(
      * 获取文件列表，找出新文件并移动到任务文件夹
      */
     private fun handleNewMediaFiles() {
-         LogManager.log(TAG, "========================================")
-         LogManager.log(TAG, "🔍 开始处理新媒体文件")
+         Log.d(TAG, "========================================")
+         Log.d(TAG, "🔍 开始处理新媒体文件")
 
         val missionPath = currentMissionFolderPath ?: run {
             Log.w(TAG, "⚠️ 没有设置任务文件夹路径，跳过文件处理")
@@ -469,43 +405,43 @@ class CameraService(
             return
         }
 
-         LogManager.log(TAG, "📁 任务文件夹路径: $missionPath")
+         Log.d(TAG, "📁 任务文件夹路径: $missionPath")
 
         try {
             // 获取媒体文件列表数据
             val mediaFileListData = mediaManager.getMediaFileListData()
-             LogManager.log(TAG, "📊 MediaFileListData 是否为空: ${mediaFileListData == null}")
+             Log.d(TAG, "📊 MediaFileListData 是否为空: ${mediaFileListData == null}")
 
             val mediaFiles = mediaFileListData?.getData()
-             LogManager.log(TAG, "📊 MediaFiles 是否为空: ${mediaFiles == null}")
+             Log.d(TAG, "📊 MediaFiles 是否为空: ${mediaFiles == null}")
 
             if (mediaFiles == null) {
                 Log.w(TAG, "⚠️ 媒体文件列表为空，返回")
                 return
             }
 
-             LogManager.log(TAG, "📊 当前媒体文件列表数量: ${mediaFiles.size}")
-             LogManager.log(TAG, "📊 已处理文件数量: ${processedFiles.size}")
+             Log.d(TAG, "📊 当前媒体文件列表数量: ${mediaFiles.size}")
+             Log.d(TAG, "📊 已处理文件数量: ${processedFiles.size}")
 
             // 遍历文件列表，找出新文件
-             LogManager.log(TAG, "🔍 开始遍历文件列表...")
+             Log.d(TAG, "🔍 开始遍历文件列表...")
             mediaFiles.forEachIndexed { index, mediaFile ->
                 val fileId = mediaFile.fileName ?: run {
-                     LogManager.log(TAG, "⚠️ 文件 $index: 文件名为空，跳过")
+                     Log.d(TAG, "⚠️ 文件 $index: 文件名为空，跳过")
                     return@forEachIndexed
                 }
 
-                 LogManager.log(TAG, "📄 文件 $index: $fileId (类型: ${mediaFile.fileType})")
+                 Log.d(TAG, "📄 文件 $index: $fileId (类型: ${mediaFile.fileType})")
 
                 // 检查是否已处理过
                 if (processedFiles.contains(fileId)) {
-                     LogManager.log(TAG, "⏭️ 文件 $fileId 已处理过，跳过")
+                     Log.d(TAG, "⏭️ 文件 $fileId 已处理过，跳过")
                     return@forEachIndexed
                 }
 
                 // 标记为已处理
                 processedFiles.add(fileId)
-                 LogManager.log(TAG, "✅ 标记文件为已处理: $fileId")
+                 Log.d(TAG, "✅ 标记文件为已处理: $fileId")
 
                 // 获取文件类型
                 // 根据 MediaFileType 枚举判断是照片还是视频
@@ -538,7 +474,7 @@ class CameraService(
                     MediaFileType.FOLDER_ATTR,
                     MediaFileType.AUDIO,
                     MediaFileType.UNKNOWN -> {
-                         LogManager.log(TAG, "跳过非照片/视频文件类型: ${mediaFile.fileType}")
+                         Log.d(TAG, "跳过非照片/视频文件类型: ${mediaFile.fileType}")
 
                     }
 
@@ -548,13 +484,13 @@ class CameraService(
                     }
                 }
 
-                 LogManager.log(TAG, "检测到新文件: $fileId, 类型: $fileType")
+                 Log.d(TAG, "检测到新文件: $fileId, 类型: $fileType")
 
                 // 下载文件到本地，然后移动到任务文件夹
                 downloadAndMoveMediaFile(mediaFile, fileType.toString(), missionPath)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "处理新媒体文件失败: ${e.message}", e)
+            Log.d(TAG, "处理新媒体文件失败: ${e.message}")
         }
     }
 
@@ -570,7 +506,7 @@ class CameraService(
         missionFolderPath: String
     ) {
         val fileName = mediaFile.fileName ?: "unknown_file"
-         LogManager.log(TAG, "准备下载文件: $fileName, 类型: $fileType")
+         Log.d(TAG, "准备下载文件: $fileName, 类型: $fileType")
 
         // 创建临时下载目录
         val tempDir = File(context.cacheDir, "media_download")
@@ -585,12 +521,12 @@ class CameraService(
         // 创建下载监听器
         val downloadListener = object : MediaFileDownloadListener {
             override fun onStart() {
-                 LogManager.log(TAG, "文件下载开始: $fileName")
+                 Log.d(TAG, "文件下载开始: $fileName")
                 try {
                     // 创建文件输出流
                     fileOutputStream = FileOutputStream(tempFile)
                 } catch (e: Exception) {
-                    Log.e(TAG, "创建文件输出流失败: ${e.message}", e)
+                    Log.d(TAG, "创建文件输出流失败: ${e.message}")
                 }
             }
 
@@ -601,7 +537,7 @@ class CameraService(
                     0
                 }
                 if (progress % 20 == 0 || current == total) { // 每20%或完成时打印
-                     LogManager.log(TAG, "文件下载进度: $fileName - $progress% ($current/$total bytes)")
+                     Log.d(TAG, "文件下载进度: $fileName - $progress% ($current/$total bytes)")
                 }
             }
 
@@ -610,40 +546,40 @@ class CameraService(
                 try {
                     fileOutputStream?.write(data)
                 } catch (e: Exception) {
-                    Log.e(TAG, "写入文件数据失败: ${e.message}", e)
+                    Log.d(TAG, "写入文件数据失败: ${e.message}")
                 }
             }
 
             override fun onFinish() {
-                 LogManager.log(TAG, "文件下载完成: $fileName")
+                 Log.d(TAG, "文件下载完成: $fileName")
 
                 // 关闭文件输出流
                 try {
                     fileOutputStream?.close()
                     fileOutputStream = null
                 } catch (e: Exception) {
-                    Log.e(TAG, "关闭文件输出流失败: ${e.message}", e)
+                    Log.d(TAG, "关闭文件输出流失败: ${e.message}")
                 }
 
                 // 检查文件是否存在
                 if (tempFile.exists() && tempFile.length() > 0) {
-                     LogManager.log(TAG, "文件下载成功，大小: ${tempFile.length()} bytes")
+                     Log.d(TAG, "文件下载成功，大小: ${tempFile.length()} bytes")
                     // 移动到任务文件夹
                     moveMediaFileToMissionFolder(tempFile.absolutePath, fileType)
                 } else {
-                    Log.e(TAG, "下载的文件不存在或为空: ${tempFile.absolutePath}")
+                    Log.d(TAG, "下载的文件不存在或为空: ${tempFile.absolutePath}")
                 }
             }
 
             override fun onFailure(error: IDJIError) {
-                Log.e(TAG, "文件下载失败: $fileName, 错误: ${error.description()}")
+                Log.d(TAG, "文件下载失败: $fileName, 错误: ${error.description()}")
 
                 // 关闭文件输出流
                 try {
                     fileOutputStream?.close()
                     fileOutputStream = null
                 } catch (e: Exception) {
-                    Log.e(TAG, "关闭文件输出流失败: ${e.message}", e)
+                    Log.d(TAG, "关闭文件输出流失败: ${e.message}")
                 }
 
                 // 删除可能不完整的文件
@@ -658,12 +594,12 @@ class CameraService(
         try {
             mediaFile.pullOriginalMediaFileFromCamera(0L, downloadListener)
         } catch (e: Exception) {
-            Log.e(TAG, "调用下载方法失败: ${e.message}", e)
+            Log.d(TAG, "调用下载方法失败: ${e.message}")
             // 确保关闭文件流
             try {
                 fileOutputStream?.close()
             } catch (closeException: Exception) {
-                Log.e(TAG, "关闭文件流异常: ${closeException.message}", closeException)
+                Log.d(TAG, "关闭文件流异常: ${closeException.message}")
             }
         }
     }
@@ -693,7 +629,7 @@ class CameraService(
 
             val sourceFile = File(sourceFilePath)
             if (!sourceFile.exists()) {
-                Log.e(TAG, "源文件不存在: $sourceFilePath")
+                Log.d(TAG, "源文件不存在: $sourceFilePath")
                 return
             }
 
@@ -702,23 +638,23 @@ class CameraService(
 
             // 移动文件
             val moveSuccess = if (sourceFile.renameTo(targetFile)) {
-                 LogManager.log(TAG, "文件移动成功: ${targetFile.absolutePath}")
+                 Log.d(TAG, "文件移动成功: ${targetFile.absolutePath}")
                 true
             } else {
                 // 如果重命名失败，尝试复制后删除
                 sourceFile.copyTo(targetFile, overwrite = true)
                 sourceFile.delete()
-                 LogManager.log(TAG, "文件复制成功: ${targetFile.absolutePath}")
+                 Log.d(TAG, "文件复制成功: ${targetFile.absolutePath}")
                 true
             }
 
             // 文件移动成功后，立即上传到服务器
             if (moveSuccess) {
-                LogManager.log(TAG, "========================================")
-                LogManager.log(TAG, "🚀 开始上传文件到服务器...")
-                LogManager.log(TAG, "   文件: ${targetFile.name}")
-                LogManager.log(TAG, "   类型: $fileType")
-                LogManager.log(TAG, "========================================")
+                Log.d(TAG, "========================================")
+                Log.d(TAG, "🚀 开始上传文件到服务器...")
+                Log.d(TAG, "   文件: ${targetFile.name}")
+                Log.d(TAG, "   类型: $fileType")
+                Log.d(TAG, "========================================")
 
                 // 使用协程上传
                 uploadScope.launch {  // 或 viewModelScope.launch
@@ -727,19 +663,19 @@ class CameraService(
                         bucketName = BUCKET_NAME,
                         objectName = "dji/${targetFile.name}",
                         onSuccess = { fileUrl: String ->  // 明确指定回调的参数类型为 String
-                            LogManager.log(TAG, "✅ 文件上传成功: ${targetFile.name}")
-                            LogManager.log(TAG, "   访问地址: $fileUrl")
+                            Log.d(TAG, "✅ 文件上传成功: ${targetFile.name}")
+                            Log.d(TAG, "   访问地址: $fileUrl")
                             // TODO: 可以将 fileUrl 保存到数据库或发送给后端
                         },
                         onFailure = { error: String ->  // 明确指定回调的参数类型为 String
-                            LogManager.log(TAG, "❌ 文件上传失败: ${targetFile.name}, 错误: $error")
+                            Log.d(TAG, "❌ 文件上传失败: ${targetFile.name}, 错误: $error")
                             // TODO: 可以实现失败重试机制
                         }
                     )
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "移动文件失败: ${e.message}", e)
+            Log.d(TAG, "移动文件失败: ${e.message}")
         }
     }
 
@@ -760,85 +696,58 @@ class CameraService(
             return
         }
 
-         LogManager.log(TAG, "========================================")
-         LogManager.log(TAG, "📸 准备拍照")
-         LogManager.log(TAG, "🔄 步骤1: 切换相机模式到拍照模式...")
-         LogManager.log(TAG, "========================================")
+         Log.d(TAG, "========================================")
+         Log.d(TAG, "📸 准备拍照")
+         Log.d(TAG, "🔄 步骤1: 切换相机模式到拍照模式...")
+         Log.d(TAG, "========================================")
 
 
-        KeyManager.getInstance().performAction(keyStartShootPhoto, object : CommonCallbacks.CompletionCallbackWithParam<EmptyMsg> {
-            override fun onSuccess(t: EmptyMsg) {
-                LogManager.log(TAG, "========================================")
-                LogManager.log(TAG, "📸 拍照命令执行成功")
-                LogManager.log(TAG, "========================================")
-                response.message = "拍照命令执行成功"
-                response.result = "TRUE"
-                sendResponse(response)
+        // 先切换到拍照模式
+        KeyManager.getInstance().setValue(keyCameraMode, CameraMode.PHOTO_NORMAL, object : CommonCallbacks.CompletionCallback {
+            override fun onSuccess() {
+                 Log.d(TAG, "✅ 相机模式已切换到拍照模式")
+                 Log.d(TAG, "🔄 步骤2: 开始拍照...")
 
-                // 拍照成功后，延迟2秒刷新文件列表（给相机时间保存文件）
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    LogManager.log(TAG, "🔄 拍照完成，开始刷新文件列表...")
-                    pullMediaFileList()
-                }, 2000)
+                KeyManager.getInstance().performAction(keyStartShootPhoto, object : CommonCallbacks.CompletionCallbackWithParam<EmptyMsg> {
+                    override fun onSuccess(t: EmptyMsg) {
+                         Log.d(TAG, "========================================")
+                         Log.d(TAG, "📸 拍照命令执行成功")
+                         Log.d(TAG, "========================================")
+                        response.message = "拍照命令执行成功"
+                        response.result = "TRUE"
+                        sendResponse(response)
+
+                        // 拍照成功后，延迟2秒刷新文件列表（给相机时间保存文件）
+                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                             Log.d(TAG, "🔄 拍照完成，开始刷新文件列表...")
+                            pullMediaFileList()
+                        }, 2000)
+                    }
+
+                    override fun onFailure(error: IDJIError) {
+                        Log.d(TAG, "========================================")
+                        Log.d(TAG, "❌ 拍照失败")
+                        Log.d(TAG, "   错误描述: ${error.description()}")
+                        Log.d(TAG, "   错误码: ${error.errorCode()}")
+                        Log.d(TAG, "========================================")
+                        response.message = "拍照失败: ${error.description() ?: "未知错误"}"
+                        response.result = "FALSE"
+                        sendResponse(response)
+                    }
+                })
             }
 
             override fun onFailure(error: IDJIError) {
-                LogManager.log(TAG, "========================================")
-                LogManager.log(TAG, "❌ 拍照失败")
-                LogManager.log(TAG, "   错误描述: ${error.description()}")
-                LogManager.log(TAG, "   错误码: ${error.errorCode()}")
-                LogManager.log(TAG, "========================================")
-                response.message = "拍照失败: ${error.description() ?: "未知错误"}"
+                Log.d(TAG, "========================================")
+                Log.d(TAG, "❌ 切换相机模式到拍照模式失败")
+                Log.d(TAG, "   错误描述: ${error.description()}")
+                Log.d(TAG, "   错误码: ${error.errorCode()}")
+                Log.d(TAG, "========================================")
+                response.message = "切换相机模式失败: ${error.description() ?: "未知错误"}"
                 response.result = "FALSE"
                 sendResponse(response)
             }
         })
-//        // 先切换到拍照模式
-//        KeyManager.getInstance().setValue(keyCameraMode, CameraMode.PHOTO_NORMAL, object : CommonCallbacks.CompletionCallback {
-//            override fun onSuccess() {
-//                 LogManager.log(TAG, "✅ 相机模式已切换到拍照模式")
-//                 LogManager.log(TAG, "🔄 步骤2: 开始拍照...")
-//
-//                KeyManager.getInstance().performAction(keyStartShootPhoto, object : CommonCallbacks.CompletionCallbackWithParam<EmptyMsg> {
-//                    override fun onSuccess(t: EmptyMsg) {
-//                         LogManager.log(TAG, "========================================")
-//                         LogManager.log(TAG, "📸 拍照命令执行成功")
-//                         LogManager.log(TAG, "========================================")
-//                        response.message = "拍照命令执行成功"
-//                        response.result = "TRUE"
-//                        sendResponse(response)
-//
-//                        // 拍照成功后，延迟2秒刷新文件列表（给相机时间保存文件）
-//                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-//                             LogManager.log(TAG, "🔄 拍照完成，开始刷新文件列表...")
-//                            pullMediaFileList()
-//                        }, 2000)
-//                    }
-//
-//                    override fun onFailure(error: IDJIError) {
-//                        LogManager.log(TAG, "========================================")
-//                        LogManager.log(TAG, "❌ 拍照失败")
-//                        LogManager.log(TAG, "   错误描述: ${error.description()}")
-//                        LogManager.log(TAG, "   错误码: ${error.errorCode()}")
-//                        LogManager.log(TAG, "========================================")
-//                        response.message = "拍照失败: ${error.description() ?: "未知错误"}"
-//                        response.result = "FALSE"
-//                        sendResponse(response)
-//                    }
-//                })
-//            }
-//
-//            override fun onFailure(error: IDJIError) {
-//                LogManager.log(TAG, "========================================")
-//                LogManager.log(TAG, "❌ 切换相机模式到拍照模式失败")
-//                LogManager.log(TAG, "   错误描述: ${error.description()}")
-//                LogManager.log(TAG, "   错误码: ${error.errorCode()}")
-//                LogManager.log(TAG, "========================================")
-//                response.message = "切换相机模式失败: ${error.description() ?: "未知错误"}"
-//                response.result = "FALSE"
-//                sendResponse(response)
-//            }
-//        })
     }
 
     /**
@@ -847,7 +756,7 @@ class CameraService(
      */
     fun startRecordVideo(response: UavControlResponse) {
         if (currentMissionFolderPath == null) {
-            LogManager.log(TAG, "未设置任务文件夹路径，无法保存视频")
+            Log.d(TAG, "未设置任务文件夹路径，无法保存视频")
             response.message = "未设置任务文件夹路径"
             response.result = "FALSE"
             sendResponse(response)
@@ -855,7 +764,7 @@ class CameraService(
         }
 
         if (isRecording) {
-            LogManager.log(TAG, "已经在录像中")
+            Log.d(TAG, "已经在录像中")
             response.message = "已经在录像中"
             response.result = "FALSE"
             sendResponse(response)
@@ -864,7 +773,7 @@ class CameraService(
 
         KeyManager.getInstance().performAction(keyStartRecord, object : CommonCallbacks.CompletionCallbackWithParam<EmptyMsg> {
             override fun onSuccess(t: EmptyMsg) {
-                 LogManager.log(TAG, "开始录像命令执行成功")
+                 Log.d(TAG, "开始录像命令执行成功")
                 isRecording = true
                 response.message = "开始录像命令执行成功"
                 response.result = "TRUE"
@@ -873,7 +782,7 @@ class CameraService(
             }
 
             override fun onFailure(error: IDJIError) {
-                LogManager.log(TAG, "开始录像失败: ${error.description()}")
+                Log.d(TAG, "开始录像失败: ${error.description()}")
                 response.message = "开始录像失败: ${error.description()}"
                 response.result = "FALSE"
                 sendResponse(response)
@@ -896,9 +805,9 @@ class CameraService(
 
         KeyManager.getInstance().performAction(keyStopRecord, object : CommonCallbacks.CompletionCallbackWithParam<EmptyMsg> {
             override fun onSuccess(t: EmptyMsg) {
-                 LogManager.log(TAG, "========================================")
-                 LogManager.log(TAG, "🎥 停止录像命令执行成功")
-                 LogManager.log(TAG, "========================================")
+                 Log.d(TAG, "========================================")
+                 Log.d(TAG, "🎥 停止录像命令执行成功")
+                 Log.d(TAG, "========================================")
                 isRecording = false
                 response.message = "停止录像命令执行成功"
                 response.result = "TRUE"
@@ -906,13 +815,13 @@ class CameraService(
 
                 // 停止录像后，延迟3秒刷新文件列表（给相机时间保存视频文件）
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                     LogManager.log(TAG, "🔄 录像停止，开始刷新文件列表...")
+                     Log.d(TAG, "🔄 录像停止，开始刷新文件列表...")
                     pullMediaFileList()
                 }, 3000)
             }
 
             override fun onFailure(error: IDJIError) {
-                Log.e(TAG, "❌ 停止录像失败: ${error.description()}")
+                Log.d(TAG, "❌ 停止录像失败: ${error.description()}")
                 response.message = "停止录像失败: ${error.description()}"
                 response.result = "FALSE"
                 sendResponse(response)
@@ -926,7 +835,7 @@ class CameraService(
      */
     fun clearProcessedFiles() {
         processedFiles.clear()
-         LogManager.log(TAG, "已清除已处理文件记录")
+         Log.d(TAG, "已清除已处理文件记录")
     }
 
     /**
@@ -954,6 +863,6 @@ class CameraService(
         isInitialized = false
         uploadScope.cancel()
 
-        LogManager.log(TAG, "✅ CameraService 已销毁")
+        Log.d(TAG, "✅ CameraService 已销毁")
     }
 }

@@ -129,17 +129,9 @@ public class DefaultLayoutActivity extends AppCompatActivity {
     private GimbalFineTuneWidget gimbalFineTuneWidget;
     private ComponentIndexType lastDevicePosition = ComponentIndexType.UNKNOWN;
     private CameraLensType lastLensType = CameraLensType.UNKNOWN;
-
     private MapWidgetManager mapWidgetManager;
-
-
-
     private CompositeDisposable compositeDisposable;
-
-
     private VisionDirectionManager visionDirectionManager;
-
-
     private final DataProcessor<CameraSource> cameraSourceProcessor = DataProcessor.create(new CameraSource(ComponentIndexType.UNKNOWN,
             CameraLensType.UNKNOWN));
     private final IDJINetworkStatusListener networkStatusListener = isNetworkAvailable -> {
