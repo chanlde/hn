@@ -24,10 +24,6 @@ class LocationHelper private constructor(
     companion object {
         private const val TAG = "LocationHelper"
 
-        /**
-         * 创建实例（需要手动清理）
-         * 使用后必须调用 cleanup()
-         */
         fun createManual(context: Context): LocationHelper {
             return LocationHelper(context.applicationContext) // ✅ 使用 ApplicationContext
         }

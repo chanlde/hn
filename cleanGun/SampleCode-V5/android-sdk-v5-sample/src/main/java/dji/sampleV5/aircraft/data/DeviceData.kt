@@ -105,7 +105,11 @@ data class FlightReportData(
     // 17. currentWaypointIndex - 当前航点索引
     var currentWaypointIndex: Int? = null,
     // 18. flightMode - 飞行模式
-    var flightMode: Int? = null
+    var flightMode: Int? = null,
+    // 19. handsetLatitude - 遥控器纬度（GPS获取）
+    var handsetLatitude: Double? = null,
+    // 20. handsetLongitude - 遥控器经度（GPS获取）
+    var handsetLongitude: Double? = null
 ) {
     /**
      * 生成新的 tid 并按严格顺序转换为 JSON 字符串
@@ -152,6 +156,10 @@ data class FlightReportData(
             addProperty("currentWaypointIndex", currentWaypointIndex)
             // 18. flightMode
             addProperty("flightMode", flightMode)
+            // 19. handsetLatitude
+            addProperty("handsetLatitude", handsetLatitude)
+            // 20. handsetLongitude
+            addProperty("handsetLongitude", handsetLongitude)
         }
         
         return json.toString()

@@ -12,7 +12,7 @@ import dji.sampleV5.aircraft.util.ToastUtils.showToast
  * 特性：
  * - 实时位置更新：启动后会持续监听位置变化，每次更新都会触发回调
  * - 自动管理：通过 stopLocation() 手动停止位置监听
- * 
+ *
  * @author Hoker
  * @date 2025/01/XX
  */
@@ -53,14 +53,12 @@ class LocationService private constructor(private val locationHelper: LocationHe
         // 先检查权限
         if (!locationHelper.hasLocationPermission()) {
             Log.w(TAG, "位置权限未授予，无法启动定位")
-            showToast("需要位置权限才能使用定位功能")
             return
         }
 
         // 检查定位服务是否启用
         if (!locationHelper.isLocationEnabled()) {
             Log.w(TAG, "位置服务未启用")
-            showToast("请开启位置服务")
             return
         }
 
@@ -68,7 +66,6 @@ class LocationService private constructor(private val locationHelper: LocationHe
             val bestProvider = locationHelper.getBestProvider()
             if (bestProvider == null) {
                 Log.w(TAG, "没有可用的定位方式")
-                showToast("没有可用的定位方式")
                 return
             }
             
@@ -87,15 +84,12 @@ class LocationService private constructor(private val locationHelper: LocationHe
             Log.d(TAG, "定位监听启动成功")
         } catch (e: SecurityException) {
             Log.e(TAG, "启动定位失败: 权限不足 - ${e.message}", e)
-            showToast("位置权限不足，请检查权限设置")
             isLocationStarted = false
         } catch (e: IllegalStateException) {
             Log.e(TAG, "启动定位失败: 定位服务未开启 - ${e.message}", e)
-            showToast("定位服务未开启，请检查设置")
             isLocationStarted = false
         } catch (e: Exception) {
             Log.e(TAG, "启动定位失败: ${e.message}", e)
-            showToast("启动定位失败: ${e.message}")
             isLocationStarted = false
         }
     }
@@ -110,7 +104,7 @@ class LocationService private constructor(private val locationHelper: LocationHe
     ) {
         val lat = location.latitude
         val lon = location.longitude
-        
+
         // 保存最后一次获取到的位置
         lastLocation = location
 

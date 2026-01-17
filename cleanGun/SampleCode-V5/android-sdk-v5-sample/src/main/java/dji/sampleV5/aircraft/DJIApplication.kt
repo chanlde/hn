@@ -22,6 +22,15 @@ open class DJIApplication : Application() {
     
     companion object {
         private const val TAG = "DJIApplication"
+        
+        @Volatile
+        private var INSTANCE: DJIApplication? = null
+        
+        /**
+         * 获取 Application 实例（静态方法）
+         * 用于在非 Android 组件类中获取 Application 实例
+         */
+        fun getInstance(): DJIApplication? = INSTANCE
     }
     
     // 定位服务相关（Application 级别管理，不受 Activity 生命周期影响）
@@ -30,6 +39,9 @@ open class DJIApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        
+        // 保存实例
+        INSTANCE = this
 
         // 优先初始化日志系统，以便捕捉后续可能的异常
         FileLogger.init(this, enableCrashHandler = true)
@@ -75,6 +87,7 @@ open class DJIApplication : Application() {
         locationHelper?.cleanup()
         locationHelper = null
         locationService = null
+        INSTANCE = null  // 清除实例引用
         Log.d(TAG, "Application 终止，已清理定位资源")
     }
 }

@@ -14,6 +14,9 @@ import dji.sdk.keyvalue.key.DJIKeyInfo
 import dji.sdk.keyvalue.key.FlightControllerKey
 import dji.sdk.keyvalue.key.RemoteControllerKey
 import dji.v5.common.error.IDJIError
+import android.location.Location
+import dji.sampleV5.aircraft.DJIApplication
+import dji.sampleV5.aircraft.manager.LocationService
 import dji.v5.manager.KeyManager
 import dji.v5.manager.aircraft.waypoint3.WaylineExecutingInfoListener
 import dji.v5.manager.aircraft.waypoint3.WaypointMissionManager
@@ -43,7 +46,7 @@ class DeviceDataManager {
     // ==================== 监听器引用（用于取消注册）====================
     private var waylineExecutingInfoListener: WaylineExecutingInfoListener? = null
     private val lock = Any()  // ← 对象锁
-
+    val locationService = DJIApplication.getInstance()?.getLocationService()
     // ==================== 初始化：注册监听器 ====================
     init {
         setupWaylineListener()
@@ -236,6 +239,23 @@ class DeviceDataManager {
             
             // 18. flightMode
             flightMode = aircraft.flightMode?.value()
+
+            try {
+                val lastLocation = locationService?.getLastLocation()
+
+                if (lastLocation != null) {
+                    handsetLatitude = lastLocation.latitude
+                    handsetLongitude = lastLocation.longitude
+                    Log.d(TAG, "更新遥控器GPS位置: lat=$handsetLatitude, lon=$handsetLongitude")
+                } else {
+                    handsetLatitude = null
+                    handsetLongitude = null
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "获取遥控器GPS位置失败: ${e.message}")
+                handsetLatitude = null
+                handsetLongitude = null
+            }
         }
     }
 
