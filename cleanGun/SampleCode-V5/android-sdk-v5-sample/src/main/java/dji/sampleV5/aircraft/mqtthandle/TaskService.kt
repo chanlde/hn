@@ -29,32 +29,37 @@ class TaskService(private val context: Context) {
         onSuccess: (String) -> Unit,
         onFailure: (String) -> Unit
     ) {
-        // 使用协程异步下载文件
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                // 下载 KMZ 文件
-                val localFile = FileDownloader.downloadKMZFile(
+                // 1. 只调用一次下载函数，接收 Result 对象
+                val result = FileDownloader.downloadKMZFile(
                     fileUrl = request.fileUrl,
                     fileName = request.key,
                     context = context
                 )
 
-                if (localFile == null) {
-                    onFailure("下载 KMZ 文件失败")
-                    return@launch
+                // 2. 使用 when 分支直接处理结果
+                when (result) {
+                    is DownloadResult.Success -> {
+                        // 下载成功，执行推送逻辑
+                        pushKMZFileToAircraft(
+                            missionPath = result.file.absolutePath,
+                            onProgress = onProgress,
+                            onSuccess = onSuccess,
+                            onFailure = onFailure
+                        )
+                    }
+                    is DownloadResult.Failure -> {
+                        // 下载失败，直接回调具体的错误原因
+                        Log.e(TAG, "下载失败原因: ${result.reason}")
+                        onFailure("下载 KMZ 失败: ${result.reason}")
+                    }
                 }
 
-                // 推送到飞机
-                pushKMZFileToAircraft(
-                    missionPath = localFile.absolutePath,
-                    onProgress = onProgress,
-                    onSuccess = onSuccess,
-                    onFailure = onFailure
-                )
-
             } catch (e: Exception) {
-                Log.e(TAG, "上传航线任务失败: ${e.message}", e)
-                onFailure("上传失败: ${e.message}")
+                // 这里的 catch 用于捕获协程执行过程中其他未预料的异常
+                Log.e(TAG, "上传航线任务系统崩溃: ${e.message}", e)
+                onFailure("系统异常: ${e.message}")
             }
         }
     }
@@ -68,6 +73,9 @@ class TaskService(private val context: Context) {
         onSuccess: (String) -> Unit,
         onFailure: (String) -> Unit
     ) {
+
+        Log.d(TAG, "航线开始上传: $missionPath")
+
         WaypointMissionManager.getInstance().pushKMZFileToAircraft(
             missionPath,
             object : CommonCallbacks.CompletionCallbackWithProgress<Double> {

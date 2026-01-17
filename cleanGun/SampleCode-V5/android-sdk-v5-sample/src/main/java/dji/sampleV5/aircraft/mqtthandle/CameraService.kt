@@ -5,12 +5,15 @@ import android.content.Context
 import android.util.Log
 import dji.sampleV5.aircraft.data.UavControlResponse
 import com.dji.network.GeneralUtils.BUCKET_NAME
+import com.dji.network.ConfigManager
+import com.dji.util.FileLogger
 
 import dji.sampleV5.aircraft.util.sendResponse
 import dji.sdk.keyvalue.key.CameraKey
 import dji.sdk.keyvalue.key.KeyTools
 import dji.sdk.keyvalue.value.camera.CameraMode
 import dji.sdk.keyvalue.value.camera.MediaFileType
+import dji.sdk.keyvalue.value.camera.CameraVideoStreamSourceType
 import dji.v5.common.callback.CommonCallbacks
 import dji.v5.common.error.IDJIError
 import dji.v5.manager.KeyManager
@@ -57,6 +60,8 @@ class CameraService(
 
     @Volatile
     var currentMissionFolderPath: String? = null
+    @Volatile
+    private var currentTaskId: String? = "cccccccccccccc"
     private var isRecording = false
 
     // 文件上传器
@@ -176,11 +181,21 @@ class CameraService(
      * 设置当前任务文件夹路径
      * 在任务开始时调用
      */
-    fun setMissionFolderPath(folderPath: String) {
+    fun setMissionFolderPath(folderPath: String, taskId: String? = null) {
         currentMissionFolderPath = folderPath
+        currentTaskId = taskId
         // 清除已处理文件记录，避免处理旧文件
         clearProcessedFiles()
-         Log.d(TAG, "设置任务文件夹路径: $folderPath")
+         Log.d(TAG, "设置任务文件夹路径: $folderPath, 任务ID: $taskId")
+    }
+
+    /**
+     * 设置任务ID（从下发的航线任务中获取）
+     * 在收到航线任务时调用
+     */
+    fun setTaskId(taskId: String) {
+        currentTaskId = taskId
+        Log.d(TAG, "设置任务ID: $taskId")
     }
 
     /**
@@ -189,7 +204,55 @@ class CameraService(
      */
     fun clearMissionFolderPath() {
         currentMissionFolderPath = null
+        currentTaskId = null
          Log.d(TAG, "清除任务文件夹路径")
+    }
+    
+    /**
+     * 获取当前相机类型（FIR/CCD）
+     * 优先根据文件名判断：带_T的是红外，带_Z的是可见光
+     * 如果文件名无法判断，则通过获取相机视频流源类型来判断
+     * @param fileName 文件名，用于判断相机类型
+     * @param callback 回调函数，返回相机类型
+     */
+    private fun getCameraType(fileName: String, callback: (String) -> Unit) {
+        // 优先根据文件名判断：带_T的是红外（FIR），带_Z的是可见光（CCD）
+        val fileNameUpper = fileName.uppercase()
+        when {
+            fileNameUpper.contains("_T.") || fileNameUpper.contains("_T.JPG") || fileNameUpper.contains("_T.JPEG") -> {
+                Log.d(TAG, "根据文件名判断为红外相机（FIR）: $fileName")
+                callback("FIR")
+                return
+            }
+            fileNameUpper.contains("_Z.") || fileNameUpper.contains("_Z.JPG") || fileNameUpper.contains("_Z.JPEG") -> {
+                Log.d(TAG, "根据文件名判断为可见光相机（CCD）: $fileName")
+                callback("CCD")
+                return
+            }
+        }
+        
+        // 如果文件名无法判断，则通过视频流源类型判断
+        try {
+            val key = KeyTools.createKey(CameraKey.KeyCameraVideoStreamSource, ComponentIndexType.LEFT_OR_MAIN)
+            KeyManager.getInstance().getValue(key, object : CommonCallbacks.CompletionCallbackWithParam<CameraVideoStreamSourceType> {
+                override fun onSuccess(result: CameraVideoStreamSourceType?) {
+                    val cameraType = when (result) {
+                        CameraVideoStreamSourceType.INFRARED_CAMERA -> "FIR"
+                        else -> "CCD"
+                    }
+                    Log.d(TAG, "根据视频流源判断相机类型: $cameraType (视频流源: $result), 文件名: $fileName")
+                    callback(cameraType)
+                }
+                
+                override fun onFailure(error: IDJIError) {
+                    Log.w(TAG, "获取相机类型失败: ${error.description()}, 默认使用 CCD, 文件名: $fileName")
+                    callback("CCD")
+                }
+            })
+        } catch (e: Exception) {
+            Log.e(TAG, "获取相机类型异常: ${e.message}, 默认使用 CCD, 文件名: $fileName", e)
+            callback("CCD")
+        }
     }
 
     /**mei
@@ -656,22 +719,43 @@ class CameraService(
                 Log.d(TAG, "   类型: $fileType")
                 Log.d(TAG, "========================================")
 
-                // 使用协程上传
-                uploadScope.launch {  // 或 viewModelScope.launch
-                    minioUploader.uploadFile(
-                        filePath = targetFile.absolutePath,
-                        bucketName = BUCKET_NAME,
-                        objectName = "dji/${targetFile.name}",
-                        onSuccess = { fileUrl: String ->  // 明确指定回调的参数类型为 String
-                            Log.d(TAG, "✅ 文件上传成功: ${targetFile.name}")
-                            Log.d(TAG, "   访问地址: $fileUrl")
-                            // TODO: 可以将 fileUrl 保存到数据库或发送给后端
-                        },
-                        onFailure = { error: String ->  // 明确指定回调的参数类型为 String
-                            Log.d(TAG, "❌ 文件上传失败: ${targetFile.name}, 错误: $error")
-                            // TODO: 可以实现失败重试机制
-                        }
-                    )
+                // 获取相机类型（优先根据文件名判断），然后构建路径并上传
+                getCameraType(targetFile.name) { cameraType ->
+                    // 构建上传路径：场站code/年/月/日/任务ID/(FIR/CCD)/图片名称
+                    val stationCode = ConfigManager.stationCode.ifEmpty { deviceId }
+                    val dateFormat = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault())
+                    val datePath = dateFormat.format(Date())
+                    val taskId = currentTaskId ?: "unknown_${System.currentTimeMillis()}"
+                    val objectName = "${stationCode}/${datePath}/${taskId}/${cameraType}/${targetFile.name}"
+                    val bucketName = ConfigManager.bucketName
+
+                    FileLogger.i(TAG, "========================================")
+                    FileLogger.i(TAG, "📤 上传路径信息:")
+                    FileLogger.i(TAG, "   场站code: $stationCode")
+                    FileLogger.i(TAG, "   日期路径: $datePath")
+                    FileLogger.i(TAG, "   任务ID: $taskId")
+                    FileLogger.i(TAG, "   相机类型: $cameraType")
+                    FileLogger.i(TAG, "   存储桶: $bucketName")
+                    FileLogger.i(TAG, "   对象路径: $objectName")
+                    FileLogger.i(TAG, "========================================")
+
+                    // 使用协程上传
+                    uploadScope.launch {
+                        minioUploader.uploadFile(
+                            filePath = targetFile.absolutePath,
+                            bucketName = bucketName,
+                            objectName = objectName,
+                            onSuccess = { fileUrl: String ->
+                                Log.d(TAG, "✅ 文件上传成功: ${targetFile.name}")
+                                Log.d(TAG, "   访问地址: $fileUrl")
+                                // TODO: 可以将 fileUrl 保存到数据库或发送给后端
+                            },
+                            onFailure = { error: String ->
+                                Log.d(TAG, "❌ 文件上传失败: ${targetFile.name}, 错误: $error")
+                                // TODO: 可以实现失败重试机制
+                            }
+                        )
+                    }
                 }
             }
         } catch (e: Exception) {

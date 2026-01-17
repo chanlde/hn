@@ -60,11 +60,8 @@ object ConfigManager {
 # 文件路径: ${configFile.absolutePath}
 # ========================================
 
-# 飞控设备 ID
-fc_device_id=1581F6GKB24C400408TU
-
 # RTMP 推流地址
-rtmp_url=rtmp://ukrd.synology.me:21935/live/test
+rtmp_url=rtmp://192.168.0.117:1935/live/stream
 
 # MinIO 配置
 minio_endpoint=http://192.168.1.201:18005
@@ -72,9 +69,11 @@ minio_access_key=minio
 minio_secret_key=UK13@ukdq
 bucket_name=cloud-bucket-dji
 
+# 场站配置
+station_code=123456
 
 # MQTT 配置
-serverHost=192.168.1.201
+serverHost=192.168.0.122
 serverPort=1883
 clientId=987652
 username=emqx
@@ -116,9 +115,39 @@ password=UK13@ukdq
     }
 
     // ==================== 配置项访问器 ====================
-
+    
+    /**
+     * 支持的设备 ID 列表（自动轮流匹配）
+     * 应用会自动匹配列表中任何一个连接的设备
+     */
+    val fcDeviceIdList: List<String> = listOf(
+        "1581F8DBW256500A2NKB",
+        "1581F8DBW255D00A2LD4",
+        "1581F6GKB24C400408TU",
+        "1581F6GKB237F003001L",
+        "1581F7K3325AV00AR049"
+    )
+    
+    /**
+     * 获取第一个设备 ID（向后兼容）
+     * 注意：实际匹配会在 observeSDKManager 中使用列表匹配
+     */
     val fcDeviceId: String
-        get() = getString("fc_device_id", "1581F6GKB24C400408TU")
+        get() = fcDeviceIdList.firstOrNull() ?: ""
+    
+    /**
+     * 检查给定的设备 ID 是否在支持列表中
+     */
+    fun isSupportedDeviceId(deviceId: String): Boolean {
+        return fcDeviceIdList.any { it.equals(deviceId, ignoreCase = true) }
+    }
+    
+    /**
+     * 获取匹配的设备 ID（如果存在）
+     */
+    fun getMatchedDeviceId(deviceId: String): String? {
+        return fcDeviceIdList.firstOrNull { it.equals(deviceId, ignoreCase = true) }
+    }
 
     val rtmpUrl: String
         get() = getString("rtmp_url", "rtmp://ukrd.synology.me:21935/live/test")
@@ -150,14 +179,14 @@ password=UK13@ukdq
     val password: String
         get() = getString("password", "UK13@ukdq")
 
-
+    val stationCode: String
+        get() = getString("station_code", "")
 
     /**
      * 打印当前配置（用于调试）
      */
     fun printCurrentConfig() {
         Log.d(TAG, "----------------------------------------")
-        Log.d(TAG, "fc_device_id    : $fcDeviceId")
         Log.d(TAG, "rtmp_url        : $rtmpUrl")
         Log.d(TAG, "minio_endpoint  : $minioEndpoint")
         Log.d(TAG, "minio_access_key: $minioAccessKey")
@@ -168,7 +197,8 @@ password=UK13@ukdq
         Log.d(TAG, "clientId        : $clientId")
         Log.d(TAG, "username        : $username")
         Log.d(TAG, "password        : ${password.take(4)}****")
-
+        Log.d(TAG, "station_code    : $stationCode")
+        Log.d(TAG, "支持的设备ID列表: ${fcDeviceIdList.joinToString(", ")}")
         Log.d(TAG, "----------------------------------------")
     }
 }

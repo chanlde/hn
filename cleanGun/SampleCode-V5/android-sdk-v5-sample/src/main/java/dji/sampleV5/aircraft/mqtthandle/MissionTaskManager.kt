@@ -46,8 +46,8 @@ class MissionTaskManager(
             status = MissionTaskStatus.RUNNING
         )
         
-        // 设置相机服务的任务文件夹路径
-        cameraService.setMissionFolderPath(folderPath)
+        // 设置相机服务的任务文件夹路径和任务ID
+        cameraService.setMissionFolderPath(folderPath, taskId)
         
         Log.d(TAG, "任务已开始: $taskId, 文件夹: $folderPath")
     }

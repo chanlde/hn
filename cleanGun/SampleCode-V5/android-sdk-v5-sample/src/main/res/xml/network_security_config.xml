@@ -1,9 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">ukrd.synology.me</domain>
-        <domain includeSubdomains="true">192.168.1.201</domain>
-        <domain includeSubdomains="true">192.168.0.117</domain>
-
-    </domain-config>
+    <!-- 
+        允许所有明文 HTTP 通信（适合内网开发环境）
+        生产环境建议使用 HTTPS 并删除此配置
+    -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system"/>
+            <certificates src="user"/>
+        </trust-anchors>
+    </base-config>
+    
+    <!-- 
+        保留 domain-config 作为备注，记录常用服务器
+        ==================== 配置文件对应的服务器 ====================
+        RTMP:  rtmp://ukrd.synology.me:21935/live/test
+        MinIO: http://192.168.1.201:18005
+        MQTT:  192.168.1.201:1883
+        ============================================================
+    -->
 </network-security-config>

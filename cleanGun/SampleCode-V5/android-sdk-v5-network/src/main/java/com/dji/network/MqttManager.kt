@@ -151,10 +151,10 @@ class MqttManager private constructor(private val config: MQTTConfig) {
             .send()
             .whenComplete { _, throwable ->
                 if (throwable != null) {
-                    Log.d("vvvvvv","MQTT publish failed: ${throwable.message}")
+                    Log.d("vvvvvv","MQTT publish failed: ${throwable.message+topic}")
                     onError?.invoke(throwable)
                 } else {
-                    Log.d("vvvvvv","MQTT publish succeeded")
+                    Log.d("vvvvvv","MQTT publish succeeded to $topic")
                     onSuccess?.invoke()
                 }
             }

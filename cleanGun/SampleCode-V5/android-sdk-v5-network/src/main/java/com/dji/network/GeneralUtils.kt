@@ -54,9 +54,6 @@ object GeneralUtils {
     val password: String
         get() = ConfigManager.password
 
-
-
-
     // 如果你的代码中用的是常量（const val），需要改成属性（val）
     // 因为 const val 必须在编译时确定，无法从文件读取
 }

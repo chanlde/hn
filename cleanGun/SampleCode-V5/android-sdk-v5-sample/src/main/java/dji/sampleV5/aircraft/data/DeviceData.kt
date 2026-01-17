@@ -2,15 +2,11 @@ package dji.sampleV5.aircraft.data
 
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
+import com.google.gson.JsonObject
 import dji.sdk.keyvalue.key.DJIKeyInfo
 import dji.sdk.keyvalue.key.KeyTools
-import dji.sdk.keyvalue.value.common.LocationCoordinate3D
-import dji.sdk.keyvalue.value.common.Velocity3D
-import dji.sdk.keyvalue.value.flightcontroller.FlightMode
-import dji.sdk.keyvalue.value.flightcontroller.GPSSignalLevel
-import dji.sdk.keyvalue.value.flightcontroller.WindDirection
-import dji.sdk.keyvalue.value.flightcontroller.WindWarning
 import dji.v5.manager.KeyManager
+import java.util.UUID
 
 // 通用的获取数据的函数
 inline fun <reified T> getValueForKey(keyInfo: DJIKeyInfo<T>): T? {
@@ -21,6 +17,176 @@ inline fun <reified T> getValueForKey(keyInfo: DJIKeyInfo<T>): T? {
         null
     }
 }
+
+/**
+ * 飞机位置数据（匹配示例格式）
+ * 顺序：longitude, latitude, height
+ */
+data class AircraftLocation3DData(
+    var longitude: Double? = null,
+    var latitude: Double? = null,
+    var height: Double? = null
+) {
+    fun toJsonObject(): JsonObject = JsonObject().apply {
+        addProperty("longitude", longitude)
+        addProperty("latitude", latitude)
+        addProperty("height", height)
+    }
+}
+
+/**
+ * 飞机姿态数据（匹配示例格式）
+ * 顺序：pitch, roll, yaw
+ */
+data class AircraftAttitudeData(
+    var pitch: Double? = null,
+    var roll: Double? = null,
+    var yaw: Double? = null
+) {
+    fun toJsonObject(): JsonObject = JsonObject().apply {
+        addProperty("pitch", pitch)
+        addProperty("roll", roll)
+        addProperty("yaw", yaw)
+    }
+}
+
+/**
+ * 飞机速度数据（匹配示例格式）
+ * 顺序：horizonVelocity, verticalVelocity
+ */
+data class AircraftVelocityData(
+    var horizonVelocity: Double? = null,
+    var verticalVelocity: Double? = null
+) {
+    fun toJsonObject(): JsonObject = JsonObject().apply {
+        addProperty("horizonVelocity", horizonVelocity)
+        addProperty("verticalVelocity", verticalVelocity)
+    }
+}
+
+/**
+ * 飞行数据上报格式（严格按照示例消息顺序）
+ * 
+ * 注意：字段顺序必须与示例完全一致！
+ */
+data class FlightReportData(
+    // 1. 消息ID
+    var tid: String = UUID.randomUUID().toString(),
+    // 2. 连接状态
+    var connection: Boolean? = null,
+    // 3. 是否飞行
+    var isFlying: Boolean? = null,
+    // 4. 飞行时间（秒）
+    var flightTimeInSeconds: Int? = null,
+    // 5. 飞机位置
+    var aircraftLocation3D: AircraftLocation3DData? = null,
+    // 6. 飞机姿态
+    var aircraftAttitude: AircraftAttitudeData? = null,
+    // 7. 飞机速度
+    var aircraftVelocity: AircraftVelocityData? = null,
+    // 8. 起飞点海拔
+    var takeoffLocationAltitude: Double? = null,
+    // 9. 卫星数量
+    var satelliteCount: Int? = null,
+    // 10. GNSS信号等级
+    var GNSSSignalLevel: Int? = null,
+    // 11. compassHeading - 罗盘航向
+    var compassHeading: Double? = null,
+    // 12. compassHasError - 罗盘错误
+    var compassHasError: Boolean? = null,
+    // 13. ultrasonicHeight - 超声波高度
+    var ultrasonicHeight: Int? = null,
+    // 14. windWarning - 风力警告
+    var windWarning: Int? = null,
+    // 15. windSpeed - 风速
+    var windSpeed: Int? = null,
+    // 16. windDirection - 风向
+    var windDirection: Int? = null,
+    // 17. currentWaypointIndex - 当前航点索引
+    var currentWaypointIndex: Int? = null,
+    // 18. flightMode - 飞行模式
+    var flightMode: Int? = null
+) {
+    /**
+     * 生成新的 tid 并按严格顺序转换为 JSON 字符串
+     * 
+     * 注意：Gson 默认按字母顺序序列化，这里手动构建保证顺序
+     */
+    fun toJsonString(): String {
+        tid = UUID.randomUUID().toString()
+        
+        val json = JsonObject().apply {
+            // 1. tid
+            addProperty("tid", tid)
+            // 2. connection
+            addProperty("connection", connection)
+            // 3. isFlying
+            addProperty("isFlying", isFlying)
+            // 4. flightTimeInSeconds
+            addProperty("flightTimeInSeconds", flightTimeInSeconds)
+            // 5. aircraftLocation3D
+            aircraftLocation3D?.let { add("aircraftLocation3D", it.toJsonObject()) }
+            // 6. aircraftAttitude
+            aircraftAttitude?.let { add("aircraftAttitude", it.toJsonObject()) }
+            // 7. aircraftVelocity
+            aircraftVelocity?.let { add("aircraftVelocity", it.toJsonObject()) }
+            // 8. takeoffLocationAltitude
+            addProperty("takeoffLocationAltitude", takeoffLocationAltitude)
+            // 9. satelliteCount
+            addProperty("satelliteCount", satelliteCount)
+            // 10. GNSSSignalLevel
+            addProperty("GNSSSignalLevel", GNSSSignalLevel)
+            // 11. compassHeading
+            addProperty("compassHeading", compassHeading)
+            // 12. compassHasError
+            addProperty("compassHasError", compassHasError)
+            // 13. ultrasonicHeight
+            addProperty("ultrasonicHeight", ultrasonicHeight)
+            // 14. windWarning
+            addProperty("windWarning", windWarning)
+            // 15. windSpeed
+            addProperty("windSpeed", windSpeed)
+            // 16. windDirection
+            addProperty("windDirection", windDirection)
+            // 17. currentWaypointIndex
+            addProperty("currentWaypointIndex", currentWaypointIndex)
+            // 18. flightMode
+            addProperty("flightMode", flightMode)
+        }
+        
+        return json.toString()
+    }
+    
+    fun toPrettyJsonString(): String {
+        tid = UUID.randomUUID().toString()
+        val gson = GsonBuilder().setPrettyPrinting().create()
+        
+        val json = JsonObject().apply {
+            addProperty("tid", tid)
+            addProperty("connection", connection)
+            addProperty("isFlying", isFlying)
+            addProperty("flightTimeInSeconds", flightTimeInSeconds)
+            aircraftLocation3D?.let { add("aircraftLocation3D", it.toJsonObject()) }
+            aircraftAttitude?.let { add("aircraftAttitude", it.toJsonObject()) }
+            aircraftVelocity?.let { add("aircraftVelocity", it.toJsonObject()) }
+            addProperty("takeoffLocationAltitude", takeoffLocationAltitude)
+            addProperty("satelliteCount", satelliteCount)
+            addProperty("GNSSSignalLevel", GNSSSignalLevel)
+            addProperty("compassHeading", compassHeading)
+            addProperty("compassHasError", compassHasError)
+            addProperty("ultrasonicHeight", ultrasonicHeight)
+            addProperty("windWarning", windWarning)
+            addProperty("windSpeed", windSpeed)
+            addProperty("windDirection", windDirection)
+            addProperty("currentWaypointIndex", currentWaypointIndex)
+            addProperty("flightMode", flightMode)
+        }
+        
+        return gson.toJson(json)
+    }
+}
+
+// ==================== 以下保留旧的数据类，用于其他功能 ====================
 
 data class BatteryData(
     var batteryPercentage: Int? = null, // 电池百分比
@@ -35,54 +201,26 @@ data class RemoteControllerData(
     var signalQuality: Int? = null     // 遥控器信号质量
 )
 
-// 飞机数据
+// 飞机数据（完整版，用于内部）
 data class AircraftData(
-    var tid: String? = null,             // 消息ID
-    var isConnected: Boolean? = null,   // 遥控器是否连接
+    var tid: String? = null,
+    var isConnected: Boolean? = null,
     var isFlying: Boolean? = null,
-    var flightTimeInSeconds: Int? = null, // 飞行时间
-    var aircraftLocation3D: LocationCoordinate3D? = null,
-    var aircraftAttitude: Double? = null,
-    var aircraftVelocity: Velocity3D? = null,
-    var takeoffLocationAltitude: Double? = null, // 起飞点海拔
-    var satelliteCount: Int? = null, // 卫星颗数
-    var GNSSSignalLevel: GPSSignalLevel? = null, // GNSS信号等级
-    var GNSSSatelliteMode: Int? = null, // GNSS启用卫星类型
-    var compassHeading: Double? = null, // 指南针角度
-    var compassHasError: Boolean? = null, // 罗盘是否异常
-    var ultrasonicHeight: Int? = null, // 超声波测距高度
-    var windWarning: WindWarning? = null, // 风速等级
-    var windSpeed: Int? = null, // 当前风速
-    var windDirection: WindDirection? = null, // 当前风向
-    var currentWaypointIndex: Int? = null, // 当前航点
-    var currentTaskStatus: Int? = null, // 当前任务状态
-    var airCraftToHomeLocationDistance: Int? = null, // 飞行器与Home点的水平距离
-    var flightMode: FlightMode? = null, // 飞行模式
-    var authorityOwner: Int? = null, // 控制权
-    var waypointMission: Int? = null, // 航线任务状态
-    var uavOnOffStatus: Int? = null, // 飞行器开关机状态
-    var isRTKDongleConnect: Boolean? = null, // RTK硬件连接状态
-    var RTKConnected: Boolean? = null, // RTK服务连接状态
-    var RTKHealthy: Boolean? = null, // RTK健康状态
-    var RTKSignal: Int? = null, // RTK解算状态
-    var RTKHeading: Float? = null, // RTK模块航向
-    var RTKlatitude: Double? = null, // RTK纬度
-    var RTKlongitude: Double? = null, // RTK经度
-    var RTKaltitude: Float? = null, // RTK椭球高度
-    var gimbalPitch: Float? = null, // 云台俯仰角
-    var gimbalRoll: Float? = null, // 云台横滚角
-    var gimbalYaw: Float? = null, // 云台偏航角
-    var remainingFlightTime: Int? = null, // 剩余飞行时间
-    var aircraftTotalFlightDistance: Double? = null, // 总飞行里程
-    var aircraftTotalFlightDuration: Double? = null, // 飞行总时间
-    var currentStep: String? = null // 当前执行步骤
-)
-
-// 飞行器姿态数据
-data class AircraftAttitude(
-    var pitch: Double? = null,  // 俯仰角
-    var roll: Double? = null,   // 横滚角
-    var yaw: Double? = null     // 偏航角
+    var flightTimeInSeconds: Int? = null,
+    var aircraftLocation3D: dji.sdk.keyvalue.value.common.LocationCoordinate3D? = null,
+    var aircraftAttitude: dji.sdk.keyvalue.value.common.Attitude? = null,
+    var aircraftVelocity: dji.sdk.keyvalue.value.common.Velocity3D? = null,
+    var takeoffLocationAltitude: Double? = null,
+    var satelliteCount: Int? = null,
+    var GNSSSignalLevel: dji.sdk.keyvalue.value.flightcontroller.GPSSignalLevel? = null,
+    var compassHeading: Double? = null,
+    var compassHasError: Boolean? = null,
+    var ultrasonicHeight: Int? = null,
+    var windWarning: dji.sdk.keyvalue.value.flightcontroller.WindWarning? = null,
+    var windSpeed: Int? = null,
+    var windDirection: dji.sdk.keyvalue.value.flightcontroller.WindDirection? = null,
+    var currentWaypointIndex: Int? = null,
+    var flightMode: dji.sdk.keyvalue.value.flightcontroller.FlightMode? = null,
 )
 
 data class DeviceData(
@@ -95,17 +233,14 @@ data class DeviceData(
 }
 
 data class AlertMessage(
-    val key: String,         // 设备id
-    val tid: String,         // 消息id
-    val time: String,        // 告警时间戳，格式为：YYYY-MM-DD hh:mm:ss
-    val content: String,     // 警告的信息
-    val type: Int,           // 警告的类型 0：预警 1：一般 2：严重 3：危急
-    val code: String         // 错误码
+    val key: String,
+    val tid: String,
+    val time: String,
+    val content: String,
+    val type: Int,
+    val code: String
 ) {
-    // 可选：若需要处理时间戳转换，可以在此定义方法
     fun getFormattedTime(): String {
-        // 假设 time 是字符串，若需要可以将其转换为 LocalDateTime
-        // return LocalDateTime.parse(time).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
-        return time // 默认返回原时间戳
+        return time
     }
 }

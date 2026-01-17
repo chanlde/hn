@@ -92,6 +92,8 @@ import dji.v5.ux.training.simulatorcontrol.SimulatorControlWidget;
 import dji.v5.ux.visualcamera.CameraNDVIPanelWidget;
 import dji.v5.ux.visualcamera.CameraVisiblePanelWidget;
 import dji.v5.ux.visualcamera.zoom.FocalZoomWidget;
+import dji.v5.ux.flightdatawidget.FlightDataWidget;
+import dji.v5.ux.flightdatawidget.FlightDataViewModel;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 
@@ -121,6 +123,8 @@ public class DefaultLayoutActivity extends AppCompatActivity {
     protected SettingWidget settingWidget;
     protected MapWidget mapWidget;
     protected TopBarPanelWidget topBarPanel;
+    protected FlightDataWidget flightDataWidget;
+    private FlightDataViewModel flightDataViewModel;
 
 
     protected ConstraintLayout fpvParentView;
@@ -179,10 +183,11 @@ public class DefaultLayoutActivity extends AppCompatActivity {
         gimbalAdjustDone = findViewById(R.id.fpv_gimbal_ok_btn);
         gimbalFineTuneWidget = findViewById(R.id.setting_menu_gimbal_fine_tune);
         mapWidget = findViewById(R.id.widget_map);
+        flightDataWidget = findViewById(R.id.flightdata_tip);
 
         initClickListener();
-
-
+        
+        initFlightDataWidget();
 
         MediaDataCenter.getInstance().getCameraStreamManager().addAvailableCameraUpdatedListener(availableCameraUpdatedListener);
         primaryFpvWidget.setOnFPVStreamSourceListener((devicePosition, lensType) -> cameraSourceProcessor.onNext(new CameraSource(devicePosition, lensType)));
@@ -207,9 +212,18 @@ public class DefaultLayoutActivity extends AppCompatActivity {
         // 初始化地图
         mapWidgetManager.initializeMapWidget(savedInstanceState);
     }
-
-
-
+    
+    private void initFlightDataWidget() {
+        if (flightDataWidget != null) {
+            // 创建 ViewModel
+            flightDataViewModel = new ViewModelProvider(this).get(FlightDataViewModel.class);
+            // 绑定 ViewModel
+            flightDataWidget.bindViewModel(flightDataViewModel, this);
+            Log.d(TAG, "FlightDataWidget 已初始化并绑定 ViewModel");
+        } else {
+            Log.w(TAG, "FlightDataWidget 未找到");
+        }
+    }
 
     private void isGimableAdjustClicked(BroadcastValues broadcastValues) {
         if (mDrawerLayout.isDrawerOpen(GravityCompat.END)) {
@@ -286,6 +300,12 @@ public class DefaultLayoutActivity extends AppCompatActivity {
             compositeDisposable.dispose();
             compositeDisposable = null;
         }
+        
+        // 停止 FlightDataWidget
+        if (flightDataWidget != null) {
+            flightDataWidget.stop();
+            flightDataWidget = null;
+        }
 
         primaryFpvWidget = null;
         fpvInteractionWidget = null;
@@ -355,16 +375,7 @@ public class DefaultLayoutActivity extends AppCompatActivity {
     private void updateFPVWidgetSource(List<ComponentIndexType> availableCameraList) {
         ArrayList<ComponentIndexType> cameraList = new ArrayList<>(availableCameraList);
 
-        // 仅一路数据
-        if (cameraList.size() == 1) {
-            primaryFpvWidget.updateVideoSource(cameraList.get(0));
-            return;
-        }
-
-        ComponentIndexType secondarySource = getSuitableSource(cameraList, ComponentIndexType.LEFT_OR_MAIN);
-        cameraList.remove(secondarySource);  // 关键步骤！
-
-        ComponentIndexType primarySource = getSuitableSource(cameraList, ComponentIndexType.FPV);
+        ComponentIndexType primarySource = getSuitableSource(cameraList, ComponentIndexType.LEFT_OR_MAIN);
         primaryFpvWidget.updateVideoSource(primarySource);
     }
 

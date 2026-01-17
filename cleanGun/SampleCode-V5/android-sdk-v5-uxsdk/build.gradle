@@ -64,6 +64,7 @@ dependencies {0
     implementation deps.constraintLayout
     implementation deps.lifecycleJava8
     implementation deps.lifecycleRuntime
+    implementation deps.lifecycleViewModel
     implementation deps.lifecycleProcess
     implementation deps.media
     implementation deps.kotlinLib

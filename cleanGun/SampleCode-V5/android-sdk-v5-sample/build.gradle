@@ -113,6 +113,19 @@ android {
     buildFeatures {
         viewBinding true
     }
+
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            // 获取版本名，如果为空则默认为 ""
+            def verName = variant.versionName != null ? variant.versionName : ""
+
+            // 使用正则替换掉文件名中的非法字符
+            def safeVersionName = verName.replaceAll("[<>:\"/\\\\|?*]", "_")
+
+            // 设置输出文件名
+            output.outputFileName = "HNUAV_${safeVersionName}.apk"
+        }
+    }
 }
 
 dependencies {

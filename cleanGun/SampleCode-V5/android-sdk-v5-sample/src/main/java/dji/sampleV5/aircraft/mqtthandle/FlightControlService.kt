@@ -5,10 +5,13 @@ import dji.sampleV5.aircraft.data.UavControlResponse
 import dji.sampleV5.aircraft.util.sendResponse
 import dji.sdk.keyvalue.key.KeyTools
 import dji.sdk.keyvalue.key.co_z.KeyConfirmLanding
+import dji.sdk.keyvalue.key.co_z.KeyHomeLocation
 import dji.sdk.keyvalue.key.co_z.KeyStartAutoLanding
 import dji.sdk.keyvalue.key.co_z.KeyStartGoHome
 import dji.sdk.keyvalue.key.co_z.KeyStartTakeoff
+import dji.sdk.keyvalue.value.camera.CameraMode
 import dji.sdk.keyvalue.value.common.EmptyMsg
+import dji.sdk.keyvalue.value.common.LocationCoordinate2D
 import dji.v5.common.callback.CommonCallbacks
 import dji.v5.common.error.IDJIError
 import dji.v5.manager.KeyManager
@@ -25,6 +28,7 @@ class FlightControlService {
     private val keyStartTakeoff = KeyTools.createKey(KeyStartTakeoff)
     private val keyStartAutoLanding = KeyTools.createKey(KeyStartAutoLanding)
     private val keyStartGoHome = KeyTools.createKey(KeyStartGoHome)
+    private val keyHomeLocation = KeyTools.createKey(KeyHomeLocation)
 
     /**
      * 起飞
@@ -48,6 +52,8 @@ class FlightControlService {
             }
         })
     }
+
+
 
     /**
      * 降落
@@ -115,4 +121,26 @@ class FlightControlService {
             onFailure("取消返航异常: ${e.message}")
         }
     }
+    fun setHomeLocation(
+        locationCoordinate2D: LocationCoordinate2D,
+        response: UavControlResponse
+    ) {
+
+        KeyManager.getInstance().setValue(keyHomeLocation, locationCoordinate2D, object : CommonCallbacks.CompletionCallback {
+            override fun onSuccess() {
+                Log.d(TAG, "成功设置返航点")
+                response.message="成功设置返航点"
+                response.result=true.toString()
+                sendResponse(response)
+            }
+
+            override fun onFailure(error: IDJIError) {
+                Log.e(TAG, "设置返航点失败: ${locationCoordinate2D},${error.description()}")
+                response.message = "设置返航点失败: ${locationCoordinate2D},${error.description()}"
+                response.result = false.toString()
+                sendResponse(response)
+            }
+        })
+    }
+
 }

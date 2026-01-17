@@ -40,13 +40,6 @@ class FpvRtmpStreamer private constructor(private val config: StreamConfig) {
         fun create(rtmpUrl: String): FpvRtmpStreamer {
             return FpvRtmpStreamer(StreamConfig(rtmpUrl = rtmpUrl))
         }
-        
-        /**
-         * 使用配置创建推流器实例
-         */
-        fun create(config: StreamConfig): FpvRtmpStreamer {
-            return FpvRtmpStreamer(config)
-        }
     }
     
     private var streamManager: ICameraStreamManager? = null

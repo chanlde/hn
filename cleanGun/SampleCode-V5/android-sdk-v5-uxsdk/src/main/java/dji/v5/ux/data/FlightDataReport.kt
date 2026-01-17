@@ -18,7 +18,6 @@ class FlightDataReport {
         startFlightDataReport()
     }
 
-
     // 启动周期性上报任务
     private fun startFlightDataReport() {
         // 只在没有运行的情况下启动新的任务

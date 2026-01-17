@@ -37,27 +37,70 @@ object MessageParser {
      * 解析航线任务请求
      */
     fun parseTaskFileRequest(message: String): TaskFileRequest? {
+        Log.d(TAG, "==== 开始解析航线任务 ====")
+        Log.d(TAG, "原始消息内容: $message")
+
         return try {
             if (!isValidJson(message)) {
-                Log.e(TAG, "无效的 JSON 消息: $message")
+                Log.e(TAG, "❌ 校验失败: 无效的 JSON 格式")
                 return null
             }
 
             val json = JSONObject(message)
+
+            // --- 深度打印所有存在的字段名，排查“货不对板”的问题 ---
+            val keys = json.keys()
+            val keyList = mutableListOf<String>()
+            while (keys.hasNext()) {
+                keyList.add(keys.next())
+            }
+            Log.d(TAG, "当前 JSON 包含的字段: $keyList")
+
+            // --- 关键字段预检 ---
+            if (!json.has("filePath")) {
+                Log.w(TAG, "⚠️ 关键警告: 消息中缺少 'filePath' 字段，这可能是一条回执(Ack)消息而非指令")
+                // 打印出类似 result 或 message 的内容辅助判断
+                Log.d(TAG, "检测到其他字段 - result: ${json.optString("result")}, message: ${json.optString("message")}")
+                return null
+            }
+
+            // --- 开始提取字段 ---
+            val key = json.optString("key")
+            val tid = json.optString("tid")
+            val filePath = json.optString("filePath")
+            val taskType = json.optInt("taskType")
+            val taskId = json.optString("taskId")
+            val autoUploadStr = json.optString("autoUpload")
+            val returnHeight = json.optDouble("returnHeight", 0.0)
+            val totalPoint = json.optInt("totalPoint", 0)
+
+            Log.d(TAG, """
+            ✅ 字段提取成功:
+            - key: $key
+            - filePath: $filePath
+            - taskId: $taskId
+            - taskType: $taskType
+            - autoUpload: $autoUploadStr
+        """.trimIndent())
+
             TaskFileRequest(
-                key = json.getString("key"),
-                tid = json.getString("tid"),
-                fileUrl = json.getString("filePath"),
-                taskType = json.getInt("taskType"),
-                taskId = json.getString("taskId"),
-                autoUpload = json.getString("autoUpload") == "TRUE",
-                returnHeight = json.getDouble("returnHeight"),
-                totalPoint = json.getInt("totalPoint"),
-                api = "/api/work/setTaskFile_${json.getString("key")}"
+                key = key,
+                tid = tid,
+                fileUrl = filePath,
+                taskType = taskType,
+                taskId = taskId,
+                autoUpload = autoUploadStr == "TRUE",
+                returnHeight = returnHeight,
+                totalPoint = totalPoint,
+                api = "/api/work/setTaskFile_$key"
             )
         } catch (e: Exception) {
-            Log.e(TAG, "解析航线任务请求失败: ${e.message}", e)
+            Log.e(TAG, "❌ 解析异常中止!")
+            Log.e(TAG, "异常原因: ${e.message}")
+            e.printStackTrace()
             null
+        } finally {
+            Log.d(TAG, "==== 解析流程结束 ====")
         }
     }
 

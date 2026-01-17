@@ -17,46 +17,41 @@ object FileDownloader {
     /**
      * 下载 KMZ 文件
      */
-    fun downloadKMZFile(fileUrl: String, fileName: String, context: Context): File? {
+    fun downloadKMZFile(fileUrl: String, fileName: String, context: Context): DownloadResult {
         return try {
-            // 创建文件存储路径
             val file = File(context.getExternalFilesDir(null), "$fileName.kmz")
-
-            // 使用 HttpURLConnection 下载文件
             val url = URL(fileUrl)
             val connection = url.openConnection() as HttpURLConnection
-            connection.requestMethod = "GET"
             connection.connectTimeout = 30000
             connection.readTimeout = 30000
             connection.connect()
 
-            // 检查响应码
             if (connection.responseCode == HttpURLConnection.HTTP_OK) {
                 val inputStream = connection.inputStream
                 val outputStream = FileOutputStream(file)
-
-                // 读取文件并写入到本地
                 val buffer = ByteArray(4096)
                 var bytesRead: Int
-                var totalBytes = 0L
-
                 while (inputStream.read(buffer).also { bytesRead = it } != -1) {
                     outputStream.write(buffer, 0, bytesRead)
-                    totalBytes += bytesRead
                 }
-
                 inputStream.close()
                 outputStream.close()
-
-                Log.d(TAG, "文件下载成功: ${file.absolutePath}, 大小: $totalBytes bytes")
-                file
+                DownloadResult.Success(file)
             } else {
-                Log.e(TAG, "下载失败: HTTP ${connection.responseCode}")
-                null
+                // 返回具体的 HTTP 状态码
+                DownloadResult.Failure("服务器返回错误码: ${connection.responseCode}")
             }
+        } catch (e: java.net.UnknownHostException) {
+            DownloadResult.Failure("网络不可用，请检查连接", e)
+        } catch (e: java.net.SocketTimeoutException) {
+            DownloadResult.Failure("下载超时，请重试", e)
         } catch (e: Exception) {
-            Log.e(TAG, "下载文件失败: ${e.message}", e)
-            null
+            DownloadResult.Failure("下载异常: ${e.localizedMessage}", e)
         }
     }
+}
+
+sealed class DownloadResult {
+    data class Success(val file: File) : DownloadResult()
+    data class Failure(val reason: String, val exception: Throwable? = null) : DownloadResult()
 }
