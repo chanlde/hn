@@ -25,22 +25,19 @@
 | 主题 | 功能 | 说明 |
 |------|------|------|
 | `/api/work/setTaskFile_{key}` | 航线任务下发 | 下载 KMZ 文件并上传到飞机 |
-| `/api/machine/uav/control_{key}` | UAV 控制命令 | 起飞、降落、返航、拍照、录像 |
+| `/api/machine/uav/control_{key}` | UAV 控制命令 | 起飞、降落、返航、拍照、录像、航线控制、相机模式、控制权 |
 | `/api/work/setHomeLocation_{key}` | 设置返航点 | 设置飞机返航位置 |
-| `/api/work/pauseResumeMission_{key}` | 断点续飞 | 暂停任务或从断点恢复 |
 
 #### 1.2 UAV 控制命令 (type)
 
 - `type = 1`: 起飞
-- `type = 2`: 降落
-- `type = 3`: 返航
+- `type = 2`: 降落（parameter: 1=普通降落, 2=视觉降落）
+- `type = 3`: 一键返航
 - `type = 4`: 拍照
-- `type = 5`: 录像（parameter: 0=停止, 1=开始）
-
-#### 1.3 断点续飞命令 (type)
-
-- `type = 0`: 暂停任务
-- `type = 1`: 从断点恢复任务（自动判断空中/地面）
+- `type = 5`: 录像（parameter: 1=开始录像, 2=停止录像）
+- `type = 6`: 航线控制（parameter: 1=航线暂停, 2=航线继续, 3=终止并悬停, 4=终止并按航线策略返航）
+- `type = 7`: 相机模式（parameter: 1=广角, 2=长焦, 3=红外）*待实现*
+- `type = 9`: 控制权模式（parameter: 1=控制权获取, 2=控制权释放）*待实现*
 
 **相关文件：**
 - `MqttMessageHandler.kt` - MQTT 消息路由中心
@@ -162,22 +159,33 @@
 
 ---
 
-### 6. 断点续飞功能
+### 6. 航线控制功能（已整合到 UAV 控制命令）
 
-#### 6.1 暂停任务
+#### 6.1 航线控制命令（type = 6）
 
-- 调用 `WaypointMissionManager.pauseMission()` 暂停当前执行的任务
+通过统一的 UAV 控制命令 `/api/machine/uav/control_{key}` 进行航线控制：
 
-#### 6.2 从断点恢复
+- **parameter = 1**：航线暂停
+  - 调用 `WaypointMissionManager.pauseMission()` 暂停当前执行的任务
+  - 暂停后自动停止任务
 
-- **自动判断场景**：
-  - **空中恢复**：飞机在空中时使用 `resumeMission(BreakPointInfo)`
-  - **地面重启**：飞机在地面时使用 `stopMission` + `startMission`
-- **状态判断**：
-  - 优先使用 `KeyIsFlying` 判断是否在空中
-  - 备用方案：查询飞机高度（阈值：2米）
+- **parameter = 2**：航线继续（从断点恢复）
+  - **自动判断场景**：
+    - **空中恢复**：飞机在空中时使用 `resumeMission(BreakPointInfo)`
+    - **地面重启**：飞机在地面时使用 `stopMission` + `startMission`
+  - **状态判断**：
+    - 优先使用 `KeyIsFlying` 判断是否在空中
+    - 备用方案：查询飞机高度（阈值：2米）
 
-#### 6.3 断点信息查询
+- **parameter = 3**：终止并悬停
+  - 调用 `WaypointMissionManager.stopMission()` 停止任务
+  - 飞机在当前位置悬停
+
+- **parameter = 4**：终止并按航线策略返航
+  - 调用 `WaypointMissionManager.stopMission()` 停止任务
+  - 停止成功后自动执行返航
+
+#### 6.2 断点信息查询
 
 - 查询飞机上的断点信息
 - 使用任务文件名查询（从 `TaskFileRequest.key` 获取）
@@ -185,7 +193,7 @@
 
 **相关文件：**
 - `MissionControlService.kt` - 任务控制服务
-- `MqttMessageHandler.kt` - MQTT 消息处理
+- `MqttMessageHandler.kt` - MQTT 消息处理（`handleMissionControl()` 方法）
 
 ---
 
@@ -219,6 +227,8 @@
 18. `flightMode` - 飞行模式
 19. `handsetLatitude` - 遥控器纬度（GPS获取）
 20. `handsetLongitude` - 遥控器经度（GPS获取）
+21. `currentTaskStatus` - 当前任务状态（0=待命, 2=执行航线, 3=返航, 6=降落完成, 8=下载媒体, 9=上传媒体, 10=任务中断, -1=未知）
+22. `waypointMissionExecuteState` - 航线任务执行状态（IDLE, READY, UPLOADING, PREPARING, ENTER_WAYLINE, EXECUTING, INTERRUPTED, RECOVERING, FINISHED 等）
 
 **相关文件：**
 - `FlightDataReport.kt` - 飞行数据上报器
@@ -344,6 +354,32 @@ fcDeviceIdList = listOf(
 
 ## 版本更新记录
 
+### v1.1.4 (2026-01-17)
+
+**新增功能：**
+- ✅ 航线任务执行状态监听（WaypointMissionExecuteState）
+- ✅ 航线控制功能整合到 UAV 控制命令（type=6）
+- ✅ 任务状态字段添加到状态包（currentTaskStatus）
+- ✅ 航线任务执行状态字段添加到状态包（waypointMissionExecuteState）
+
+**优化：**
+- ✅ 断点续飞功能整合到统一控制命令，不再需要单独的 MQTT 主题
+- ✅ 支持终止并悬停、终止并返航两种停止方式
+- ✅ 状态包数据更完整，包含任务状态和执行状态
+
+### v1.1.3 (2026-01-17)
+
+**新增功能：**
+- ✅ 航线任务执行状态监听（WaypointMissionExecuteState）
+- ✅ 航线控制功能整合到 UAV 控制命令（type=6）
+- ✅ 任务状态字段添加到状态包（currentTaskStatus）
+- ✅ 航线任务执行状态字段添加到状态包（waypointMissionExecuteState）
+
+**优化：**
+- ✅ 断点续飞功能整合到统一控制命令，不再需要单独的 MQTT 主题
+- ✅ 支持终止并悬停、终止并返航两种停止方式
+- ✅ 状态包数据更完整，包含任务状态和执行状态
+
 ### v1.1.2 (2026-01-17)
 
 **新增功能：**
@@ -426,4 +462,25 @@ android-sdk-v5-network/
 ---
 
 **最后更新日期：** 2026-01-17
+
+---
+
+## 最新更新（v1.1.4）
+
+### 航线控制功能整合
+
+断点续飞功能已整合到统一的 UAV 控制命令中，通过 `type=6` 和不同的 `parameter` 值来控制：
+
+- **暂停任务**：`type=6, parameter=1`
+- **继续任务**：`type=6, parameter=2`
+- **终止并悬停**：`type=6, parameter=3`
+- **终止并返航**：`type=6, parameter=4`
+
+不再需要单独的 `/api/work/pauseResumeMission_{key}` MQTT 主题。
+
+### 状态包增强
+
+状态包新增两个字段：
+- `currentTaskStatus`：当前任务状态（0=待命, 2=执行航线, 3=返航, 6=降落完成, 8=下载媒体, 9=上传媒体, 10=任务中断, -1=未知）
+- `waypointMissionExecuteState`：航线任务执行状态（IDLE, READY, UPLOADING, PREPARING, ENTER_WAYLINE, EXECUTING, INTERRUPTED, RECOVERING, FINISHED 等）
 
