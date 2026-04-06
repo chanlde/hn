@@ -25,14 +25,14 @@ data class StreamConfig(
     val connectionTimeoutMs: Long = 5000,
     
     /**
-     * 自动重连次数（0表示不重连）
+     * 自动重连次数（0 表示无限重连，直到 stopStreaming）
      */
     val autoReconnectCount: Int = 0,
     
     /**
-     * 重连间隔（毫秒）
+     * 重连基础间隔（毫秒），实际延迟为指数退避
      */
-    val reconnectIntervalMs: Long = 3000
+    val reconnectIntervalMs: Long = 1000L
 ) {
     init {
         require(rtmpUrl.isNotEmpty()) { "RTMP URL 不能为空" }

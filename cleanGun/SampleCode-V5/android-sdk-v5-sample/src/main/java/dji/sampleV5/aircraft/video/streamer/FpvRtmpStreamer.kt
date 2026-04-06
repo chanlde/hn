@@ -1,7 +1,10 @@
 package dji.sampleV5.aircraft.video.streamer
 
 import android.media.MediaCodec
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import com.dji.util.FileLogger
 import com.pedro.common.ConnectChecker
 import com.pedro.rtmp.rtmp.RtmpClient
 import dji.sampleV5.aircraft.video.ai.VideoFrameAnalyzer
@@ -16,6 +19,8 @@ import dji.v5.manager.datacenter.camera.StreamInfo
 import dji.v5.manager.interfaces.ICameraStreamManager
 import java.nio.ByteBuffer
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.min
 
 /**
  * FPV RTMP 推流器（重构版）
@@ -33,6 +38,8 @@ class FpvRtmpStreamer private constructor(private val config: StreamConfig) {
         private const val TAG = "FpvRtmpStreamer"
 
         private const val CACHE_DIAGNOSIS_INTERVAL_FRAMES: Long = 30L
+        /** 重连最大退避间隔（毫秒） */
+        private const val RECONNECT_MAX_DELAY_MS: Long = 30_000L
 
         /**
          * 创建推流器实例
@@ -58,6 +65,12 @@ class FpvRtmpStreamer private constructor(private val config: StreamConfig) {
     
     // 当前编码信息
     var currentCodecInfo: VideoCodecInfo? = null
+
+    /** 用户已 start 且未 stop，用于断线后自动重连 */
+    private val sessionActive = AtomicBoolean(false)
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var reconnectRunnable: Runnable? = null
+    private var reconnectAttemptCount = 0
     
     // RTMP 连接检查器
     private val connectChecker = object : ConnectChecker {
@@ -69,26 +82,32 @@ class FpvRtmpStreamer private constructor(private val config: StreamConfig) {
         }
         
         override fun onConnectionSuccess() {
-            Log.d(TAG, "连接成功")
+            FileLogger.i(TAG, "RTMP 已连接 url=${config.rtmpUrl}")
             stateManager.setConnected(true)
+            reconnectAttemptCount = 0
+            cancelReconnectSchedule()
+            // 重连后需重新下发 SPS/PPS
+            stateManager.setSpsSet(false)
             timestampManager.reset()
             callbacks.forEach { it.onConnectionSuccess() }
         }
         
         override fun onConnectionFailed(reason: String) {
-            Log.e(TAG, "连接失败: $reason")
+            FileLogger.w(TAG, "RTMP 连接失败: $reason")
             stateManager.setConnected(false)
             callbacks.forEach { it.onConnectionFailed(reason) }
+            scheduleRtmpReconnect("连接失败: $reason")
         }
         
         override fun onDisconnect() {
-            Log.d(TAG, "已断开")
+            FileLogger.w(TAG, "RTMP 已断开，将尝试重连")
             stateManager.setConnected(false)
             callbacks.forEach { it.onDisconnect() }
+            scheduleRtmpReconnect("断开")
         }
         
         override fun onAuthError() {
-            Log.e(TAG, "认证失败")
+            FileLogger.e(TAG, "RTMP 认证失败", null)
             callbacks.forEach { it.onAuthError() }
         }
         
@@ -115,7 +134,7 @@ class FpvRtmpStreamer private constructor(private val config: StreamConfig) {
             val frameData = data.copyOfRange(offset, offset + length)
             processFrame(frameData, info)
         } catch (e: Exception) {
-            Log.e(TAG, "处理帧失败: ${e.message}", e)
+            FileLogger.e(TAG, "处理视频帧失败: ${e.message}", e)
             callbacks.forEach { it.onError(e) }
         }
     }
@@ -126,15 +145,53 @@ class FpvRtmpStreamer private constructor(private val config: StreamConfig) {
             sendVideoFrame(frameData, bufferInfo)
         }
     }
+
+    private fun cancelReconnectSchedule() {
+        reconnectRunnable?.let { mainHandler.removeCallbacks(it) }
+        reconnectRunnable = null
+    }
+
+    /**
+     * RTMP 断线后指数退避重连。autoReconnectCount==0 表示不限制次数。
+     */
+    private fun scheduleRtmpReconnect(reason: String) {
+        if (!sessionActive.get()) return
+        val maxAttempts = config.autoReconnectCount
+        if (maxAttempts > 0 && reconnectAttemptCount >= maxAttempts) {
+            FileLogger.e(TAG, "RTMP 已达最大重连次数 $maxAttempts，停止 ($reason)", null)
+            return
+        }
+        cancelReconnectSchedule()
+        val exp = min(reconnectAttemptCount, 5)
+        val delay = min(config.reconnectIntervalMs * (1L shl exp), RECONNECT_MAX_DELAY_MS).coerceAtLeast(500L)
+        reconnectAttemptCount++
+        FileLogger.w(TAG, "RTMP 重连调度 attempt=$reconnectAttemptCount delayMs=$delay reason=$reason")
+        val runnable = Runnable {
+            if (!sessionActive.get() || rtmpClient == null) return@Runnable
+            try {
+                FileLogger.i(TAG, "RTMP 执行重连 url=${config.rtmpUrl}")
+                rtmpClient?.connect(config.rtmpUrl)
+            } catch (e: Exception) {
+                FileLogger.e(TAG, "RTMP 重连异常: ${e.message}", e)
+                scheduleRtmpReconnect("connect异常: ${e.message}")
+            }
+        }
+        reconnectRunnable = runnable
+        mainHandler.postDelayed(runnable, delay)
+    }
     
     /**
      * 开始推流
      */
     fun startStreaming() {
         if (stateManager.isStreaming()) {
-            Log.w(TAG, "已经在推流中")
+            FileLogger.w(TAG, "RTMP 已在推流中，忽略重复 start")
             return
         }
+
+        sessionActive.set(true)
+        reconnectAttemptCount = 0
+        cancelReconnectSchedule()
         
         // 初始化 RTMP 客户端
         rtmpClient = RtmpClient(connectChecker).apply {
@@ -150,13 +207,17 @@ class FpvRtmpStreamer private constructor(private val config: StreamConfig) {
 
         streamManager?.addReceiveStreamListener(ComponentIndexType.LEFT_OR_MAIN, streamListener)
         
-        Log.d(TAG, "开始推流到: ${config.rtmpUrl}")
+        FileLogger.i(TAG, "RTMP 推流启动 url=${config.rtmpUrl}")
     }
     
     /**
      * 停止推流
      */
     fun stopStreaming() {
+        sessionActive.set(false)
+        cancelReconnectSchedule()
+        reconnectAttemptCount = 0
+
         stateManager.reset()
         timestampManager.reset()
         frameProcessor.reset()
@@ -169,7 +230,7 @@ class FpvRtmpStreamer private constructor(private val config: StreamConfig) {
         rtmpClient = null
         
         callbacks.forEach { it.onStreamingStopped() }
-        Log.d(TAG, "推流已停止")
+        FileLogger.i(TAG, "RTMP 推流已停止")
     }
     
     /**
@@ -181,58 +242,32 @@ class FpvRtmpStreamer private constructor(private val config: StreamConfig) {
 
         // 处理帧数据（包含多个 NAL 单元）
         val result = frameProcessor.processFrame(data, info)
-        Log.d(TAG, "========== processFrame 结果: $result ==========")
-        
         when (result) {
             VideoFrameProcessor.ProcessResult.CodecInfoUpdated -> {
-                Log.d(TAG, "编码信息已更新，检查是否完整...")
                 val newCodecInfo = frameProcessor.getCodecInfo()
-                Log.d(TAG, "获取到的编码信息: ${if (newCodecInfo != null) "非空" else "null"}")
                 if (newCodecInfo != null) {
-                    val isComplete = newCodecInfo.isComplete()
-                    Log.d(TAG, "编码信息是否完整: $isComplete")
-                    Log.d(TAG, "SPS: ${newCodecInfo.sps?.size ?: "null"}, PPS: ${newCodecInfo.pps?.size ?: "null"}, VPS: ${newCodecInfo.vps?.size ?: "null"}")
-                    if (isComplete) {
-                        Log.d(TAG, "编码信息完整，准备设置视频配置...")
-                        checkAndUpdateVideoConfig(newCodecInfo, info)
+                    if (newCodecInfo.isComplete()) {
+                        checkAndUpdateVideoConfig(newCodecInfo)
                     } else {
-                        Log.w(TAG, "编码信息不完整，等待更多数据...")
+                        FileLogger.throttledD(TAG, "codecIncomplete", "编码参数未齐 sps=${newCodecInfo.sps?.size} pps=${newCodecInfo.pps?.size} vps=${newCodecInfo.vps?.size}", 5_000L)
                     }
                 } else {
-                    Log.e(TAG, "编码信息为 null！")
+                    FileLogger.w(TAG, "编码信息为 null")
                 }
             }
             VideoFrameProcessor.ProcessResult.FrameReady -> {
-                Log.d(TAG, "视频帧已准备好，准备发送...")
-                // 检查编码信息是否已设置，如果没有设置但已完整，则设置
                 val currentInfo = frameProcessor.getCodecInfo()
-                Log.d(TAG, "检查编码信息: currentInfo=${if (currentInfo != null) "非空" else "null"}, " +
-                        "isComplete=${currentInfo?.isComplete()}, isSpsSet=${stateManager.isSpsSet()}")
-                
                 if (currentInfo != null && currentInfo.isComplete() && !stateManager.isSpsSet()) {
-                    Log.e(TAG, "⚠️⚠️⚠️ 编码信息完整但未设置，立即设置...")
-                    Log.e(TAG, "SPS: ${currentInfo.sps?.size ?: "null"}, PPS: ${currentInfo.pps?.size ?: "null"}")
-                    checkAndUpdateVideoConfig(currentInfo, info)
-                } else {
-                    if (currentInfo == null) {
-                        Log.w(TAG, "编码信息为 null，无法设置")
-                    } else if (!currentInfo.isComplete()) {
-                        Log.w(TAG, "编码信息不完整: SPS=${currentInfo.sps?.size ?: "null"}, PPS=${currentInfo.pps?.size ?: "null"}")
-                    } else if (stateManager.isSpsSet()) {
-                        Log.d(TAG, "编码信息已设置，继续发送帧")
-                    }
+                    FileLogger.w(TAG, "补设 RTMP 视频参数 SPS=${currentInfo.sps?.size} PPS=${currentInfo.pps?.size}")
+                    checkAndUpdateVideoConfig(currentInfo)
                 }
-                // 帧已准备好，会在 onFrameReady 回调中发送
             }
-            VideoFrameProcessor.ProcessResult.WaitingForCodecInfo -> {
-                Log.d(TAG, "等待编码信息，跳过此帧")
-                // 等待编码信息，不处理
-            }
+            VideoFrameProcessor.ProcessResult.WaitingForCodecInfo -> { }
             VideoFrameProcessor.ProcessResult.Invalid -> {
-                Log.w(TAG, "无效的帧数据")
+                FileLogger.throttledD(TAG, "frameInvalid", "无效视频帧", 10_000L)
             }
             VideoFrameProcessor.ProcessResult.Unsupported -> {
-                Log.w(TAG, "不支持的编码格式")
+                FileLogger.w(TAG, "不支持的编码格式")
             }
         }
     }
@@ -240,67 +275,46 @@ class FpvRtmpStreamer private constructor(private val config: StreamConfig) {
     /**
      * 检查并更新视频配置
      */
-    private fun checkAndUpdateVideoConfig(newCodecInfo: VideoCodecInfo, info: StreamInfo) {
-        Log.d(TAG, "========== checkAndUpdateVideoConfig 开始 ==========")
-        Log.d(TAG, "当前编码信息: ${if (currentCodecInfo != null) "存在" else "null"}")
-        Log.d(TAG, "新编码信息: ${newCodecInfo.width}x${newCodecInfo.height}, ${newCodecInfo.mimeType}")
-        Log.d(TAG, "新编码信息 SPS: ${newCodecInfo.sps?.size ?: "null"}, PPS: ${newCodecInfo.pps?.size ?: "null"}, VPS: ${newCodecInfo.vps?.size ?: "null"}")
-        
-        // 检查编码信息是否变化
+    private fun checkAndUpdateVideoConfig(newCodecInfo: VideoCodecInfo) {
         val hasChanged = newCodecInfo.hasChanged(currentCodecInfo)
-        Log.d(TAG, "编码信息是否变化: $hasChanged")
+        if (!hasChanged) return
 
-        
-        if (hasChanged) {
-            Log.d(TAG, "编码信息已变化，开始设置视频参数...")
-            
-            // 更新帧率
-            timestampManager.setFrameRate(newCodecInfo.frameRate)
-            Log.d(TAG, "帧率已更新: ${newCodecInfo.frameRate}fps")
-            
-            // 设置视频参数
-            if (rtmpClient == null) {
-                Log.e(TAG, "RTMP 客户端为 null，无法设置视频参数！")
-            } else {
-                Log.d(TAG, "设置视频分辨率: ${newCodecInfo.width}x${newCodecInfo.height}")
-                rtmpClient?.setVideoResolution(newCodecInfo.width, newCodecInfo.height)
-                
-                if (newCodecInfo.mimeType == ICameraStreamManager.MimeType.H265) {
-                    Log.d(TAG, "设置 H.265 视频信息: SPS=${newCodecInfo.sps?.size}, PPS=${newCodecInfo.pps?.size}, VPS=${newCodecInfo.vps?.size}")
-                    rtmpClient?.setVideoInfo(
-                        ByteBuffer.wrap(newCodecInfo.sps!!),
-                        ByteBuffer.wrap(newCodecInfo.pps!!),
-                        ByteBuffer.wrap(newCodecInfo.vps!!)
-                    )
-                } else {
-                    Log.d(TAG, "设置 H.264 视频信息: SPS=${newCodecInfo.sps?.size}, PPS=${newCodecInfo.pps?.size}")
-                    rtmpClient?.setVideoInfo(
-                        ByteBuffer.wrap(newCodecInfo.sps!!),
-                        ByteBuffer.wrap(newCodecInfo.pps!!),
-                        null
-                    )
-                }
-                Log.d(TAG, "视频信息已设置到 RTMP 客户端")
-            }
-            
-            stateManager.setSpsSet(true)
-            currentCodecInfo = newCodecInfo
-            
-            val mimeTypeStr = when (newCodecInfo.mimeType) {
-                ICameraStreamManager.MimeType.H264 -> "H.264"
-                ICameraStreamManager.MimeType.H265 -> "H.265"
-                else -> "Unknown"
-            }
-            
-            Log.e(TAG, "========== ✅ 视频参数已设置: ${newCodecInfo.width}x${newCodecInfo.height}, 编码: $mimeTypeStr, 帧率: ${newCodecInfo.frameRate}fps ==========")
-            
-            callbacks.forEach { 
-                it.onVideoConfigSet(newCodecInfo.width, newCodecInfo.height, mimeTypeStr) 
-            }
-        } else {
-            Log.d(TAG, "编码信息未变化，跳过设置（可能已经设置过了）")
+        timestampManager.setFrameRate(newCodecInfo.frameRate)
+        val client = rtmpClient
+        if (client == null) {
+            FileLogger.e(TAG, "RTMP 客户端为 null，无法设置视频参数", null)
+            return
         }
-        Log.d(TAG, "========== checkAndUpdateVideoConfig 结束 ==========")
+        client.setVideoResolution(newCodecInfo.width, newCodecInfo.height)
+        if (newCodecInfo.mimeType == ICameraStreamManager.MimeType.H265) {
+            client.setVideoInfo(
+                ByteBuffer.wrap(newCodecInfo.sps!!),
+                ByteBuffer.wrap(newCodecInfo.pps!!),
+                ByteBuffer.wrap(newCodecInfo.vps!!)
+            )
+        } else {
+            client.setVideoInfo(
+                ByteBuffer.wrap(newCodecInfo.sps!!),
+                ByteBuffer.wrap(newCodecInfo.pps!!),
+                null
+            )
+        }
+
+        stateManager.setSpsSet(true)
+        currentCodecInfo = newCodecInfo
+
+        val mimeTypeStr = when (newCodecInfo.mimeType) {
+            ICameraStreamManager.MimeType.H264 -> "H.264"
+            ICameraStreamManager.MimeType.H265 -> "H.265"
+            else -> "Unknown"
+        }
+        FileLogger.i(
+            TAG,
+            "RTMP 视频参数已更新 ${newCodecInfo.width}x${newCodecInfo.height} $mimeTypeStr fps=${newCodecInfo.frameRate}"
+        )
+        callbacks.forEach {
+            it.onVideoConfigSet(newCodecInfo.width, newCodecInfo.height, mimeTypeStr)
+        }
     }
     
     /**
@@ -308,12 +322,12 @@ class FpvRtmpStreamer private constructor(private val config: StreamConfig) {
      */
     private fun sendVideoFrame(data: ByteArray, bufferInfo: MediaCodec.BufferInfo) {
         if (!stateManager.isSpsSet()) {
-            Log.w(TAG, "SPS/PPS 未设置，跳过发送视频帧")
+            FileLogger.throttledD(TAG, "skipNoSps", "SPS/PPS 未设置，跳过送帧", 15_000L)
             return
         }
         val frameCount: Long = timestampManager.getFrameCount()
         if (frameCount % CACHE_DIAGNOSIS_INTERVAL_FRAMES == 0L) {
-            diagnoseCacheStatusDuringStreaming(data.size)
+            diagnoseCacheStatusDuringStreaming()
         }
         // 设置时间戳（使用动态帧率）
         bufferInfo.presentationTimeUs = timestampManager.getNextTimestampByActualInterval()
@@ -321,28 +335,23 @@ class FpvRtmpStreamer private constructor(private val config: StreamConfig) {
         // 创建 ByteBuffer
         val buffer = ByteBuffer.wrap(data)
         
-        val isKeyFrame = (bufferInfo.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0
-        Log.d(TAG, "发送视频帧: 大小=${data.size} 字节, 时间戳=${bufferInfo.presentationTimeUs}μs, 关键帧=$isKeyFrame")
-        
         // 发送帧
         rtmpClient?.sendVideo(buffer, bufferInfo)
     }
 
-    private fun diagnoseCacheStatusDuringStreaming(frameSizeBytes: Int): Unit {
+    private fun diagnoseCacheStatusDuringStreaming() {
         val client: RtmpClient = rtmpClient ?: return
         val cacheSizeBytes: Int = client.cacheSize
         val itemsInCache: Int = client.getItemsInCache()
         val frameRate: Int = currentCodecInfo?.frameRate ?: 30
         val delaySeconds: Float =
             if (itemsInCache > 0 && frameRate > 0) itemsInCache.toFloat() / frameRate else 0f
-        val avgFrameBytes: Int =
-            if (itemsInCache > 0 && cacheSizeBytes > 0) cacheSizeBytes / itemsInCache else frameSizeBytes
-        Log.d("cache", "========== 📊 缓存监控 ==========")
-        Log.d("cache", "缓存大小: ${cacheSizeBytes / 1024} KB")
-        Log.d("cache", "缓存帧数: $itemsInCache")
-        Log.d("cache", "平均帧大小: ${avgFrameBytes / 1024} KB")
-        Log.d("cache", "估算延时: ${"%.2f".format(delaySeconds)}秒")
-        Log.d("cache", "==================================")
+        FileLogger.throttledD(
+            TAG,
+            "rtmpCache",
+            "RTMP缓存 KB=${cacheSizeBytes / 1024} 帧数=$itemsInCache 估延时=${"%.2f".format(delaySeconds)}s",
+            10_000L
+        )
     }
     /**
      * 添加回调监听器

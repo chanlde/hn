@@ -86,6 +86,10 @@ data class FlightReportData(
     var aircraftVelocity: AircraftVelocityData? = null,
     // 8. 起飞点海拔
     var takeoffLocationAltitude: Double? = null,
+    // 8a. 相对起飞点高度（KeyAltitude，米）
+    var relativeAltitudeFromTakeoff: Double? = null,
+    // 8b. 当前海拔高度 AMSL ≈ 相对高度 + 起飞点海拔（米）
+    var altitudeAMSL: Double? = null,
     // 9. 卫星数量
     var satelliteCount: Int? = null,
     // 10. GNSS信号等级
@@ -109,7 +113,13 @@ data class FlightReportData(
     // 19. handsetLatitude - 遥控器纬度（GPS获取）
     var handsetLatitude: Double? = null,
     // 20. handsetLongitude - 遥控器经度（GPS获取）
-    var handsetLongitude: Double? = null
+    var handsetLongitude: Double? = null,
+    // 21. currentTaskStatus - 当前任务状态
+    var currentTaskStatus: Int? = null,
+    // 22. waypointMissionExecuteState - 航线任务执行状态
+    var waypointMissionExecuteState: String? = null,
+    // 23. cameraMode - 相机拍摄模式（如 PHOTO_NORMAL / VIDEO_NORMAL）
+    var cameraMode: String? = null
 ) {
     /**
      * 生成新的 tid 并按严格顺序转换为 JSON 字符串
@@ -136,6 +146,8 @@ data class FlightReportData(
             aircraftVelocity?.let { add("aircraftVelocity", it.toJsonObject()) }
             // 8. takeoffLocationAltitude
             addProperty("takeoffLocationAltitude", takeoffLocationAltitude)
+            addProperty("relativeAltitudeFromTakeoff", relativeAltitudeFromTakeoff)
+            addProperty("altitudeAMSL", altitudeAMSL)
             // 9. satelliteCount
             addProperty("satelliteCount", satelliteCount)
             // 10. GNSSSignalLevel
@@ -160,6 +172,12 @@ data class FlightReportData(
             addProperty("handsetLatitude", handsetLatitude)
             // 20. handsetLongitude
             addProperty("handsetLongitude", handsetLongitude)
+            // 21. currentTaskStatus
+            addProperty("currentTaskStatus", currentTaskStatus)
+            // 22. waypointMissionExecuteState
+            addProperty("waypointMissionExecuteState", waypointMissionExecuteState)
+            // 23. cameraMode
+            addProperty("cameraMode", cameraMode)
         }
         
         return json.toString()
@@ -178,6 +196,8 @@ data class FlightReportData(
             aircraftAttitude?.let { add("aircraftAttitude", it.toJsonObject()) }
             aircraftVelocity?.let { add("aircraftVelocity", it.toJsonObject()) }
             addProperty("takeoffLocationAltitude", takeoffLocationAltitude)
+            addProperty("relativeAltitudeFromTakeoff", relativeAltitudeFromTakeoff)
+            addProperty("altitudeAMSL", altitudeAMSL)
             addProperty("satelliteCount", satelliteCount)
             addProperty("GNSSSignalLevel", GNSSSignalLevel)
             addProperty("compassHeading", compassHeading)
@@ -188,6 +208,7 @@ data class FlightReportData(
             addProperty("windDirection", windDirection)
             addProperty("currentWaypointIndex", currentWaypointIndex)
             addProperty("flightMode", flightMode)
+            addProperty("cameraMode", cameraMode)
         }
         
         return gson.toJson(json)
@@ -229,6 +250,10 @@ data class AircraftData(
     var windDirection: dji.sdk.keyvalue.value.flightcontroller.WindDirection? = null,
     var currentWaypointIndex: Int? = null,
     var flightMode: dji.sdk.keyvalue.value.flightcontroller.FlightMode? = null,
+    /** 相对起飞点高度（米），FlightControllerKey.KeyAltitude */
+    var relativeAltitudeFromTakeoff: Double? = null,
+    /** 主云台相机拍摄模式名称（监听 LEFT_OR_MAIN） */
+    var cameraShootingModeName: String? = null,
 )
 
 data class DeviceData(

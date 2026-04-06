@@ -13,7 +13,9 @@ import dji.v5.manager.aircraft.perception.data.PerceptionInfo
 import dji.v5.utils.common.LocationUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlin.coroutines.cancellation.CancellationException
 import java.io.File
 import java.util.UUID
 
@@ -33,7 +35,16 @@ class MissionFileUploader(
     }
     
     private val httpClient = HttpClient.getInstance()
-    private val uploadScope = CoroutineScope(Dispatchers.IO)
+    private val uploadSupervisorJob = SupervisorJob()
+    private val uploadScope = CoroutineScope(uploadSupervisorJob + Dispatchers.IO)
+
+    /**
+     * 取消所有进行中的 HTTP 上传协程（与 CameraService 生命周期对齐）
+     */
+    fun cancelPendingUploads() {
+        val cause = CancellationException("MissionFileUploader.cancelPendingUploads")
+        uploadSupervisorJob.children.forEach { it.cancel(cause) }
+    }
     
     /**
      * 上传单个照片/视频文件
@@ -187,15 +198,17 @@ class MissionFileUploader(
             val videosFolder = File(folder, "视频")
             
             if (photosFolder.exists()) {
-                photosFolder.listFiles()?.forEach { file ->
-                    if (file.isFile) allFiles.add(file)
-                }
+                photosFolder.listFiles()
+                    ?.filter { it.isFile }
+                    ?.sortedBy { it.name }
+                    ?.forEach { file -> allFiles.add(file) }
             }
             
             if (videosFolder.exists()) {
-                videosFolder.listFiles()?.forEach { file ->
-                    if (file.isFile) allFiles.add(file)
-                }
+                videosFolder.listFiles()
+                    ?.filter { it.isFile }
+                    ?.sortedBy { it.name }
+                    ?.forEach { file -> allFiles.add(file) }
             }
             
             if (allFiles.isEmpty()) {

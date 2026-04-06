@@ -1,39 +1,46 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
+
 buildscript {
+    // 这里的变量引用自你的 gradle.properties
     repositories {
-        google()
-        jcenter()
-        mavenCentral()
-        maven { url 'https://maven.fabric.io/public' }
+        google()            // 必须排第一
+        mavenCentral()      // 必须有，替代已失效的 jcenter
         maven { url 'https://plugins.gradle.org/m2/' }
-        maven { url 'https://dl.bintray.com/kotlin/kotlin-eap' }
     }
 
     dependencies {
+        // 保持你原有的 AGP 版本
         classpath 'com.android.tools.build:gradle:7.4.2'
+        // 引用属性文件中的 KOTLIN_VERSION
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$KOTLIN_VERSION"
+
+        /** * 关键修复：手动注入缺失的类库到 Gradle 编译环境
+         * 解决 org/mozilla/universalchardet/UniversalDetector 找不到的问题
+         */
+        classpath "com.github.albfernandez:juniversalchardet:2.4.0"
     }
 }
 
+// 引用你自定义的依赖版本管理文件
 apply from: rootProject.file('dependencies.gradle')
 
 allprojects {
     repositories {
-        maven {
-            url REPO_MAVEN2
-        }
-        google()
-        jcenter()
-        mavenCentral()
-        maven {
-            url KOTLIN_MAVEN
+        google()            // 优先从 Google 下载
+        mavenCentral()      // 核心仓库
+
+        // 引用属性文件中的 JITPACK_MAVEN_URL (https://jitpack.io)
+        if (project.hasProperty('JITPACK_MAVEN_URL')) {
+            maven { url JITPACK_MAVEN_URL }
+        } else {
+            maven { url 'https://jitpack.io' }
         }
 
-        maven { url JITPACK_MAVEN_URL }
-        repositories {
-            flatDir {
-                dirs new File(rootProject.projectDir.getAbsolutePath() + '/libs')
-            }
-        }
+        // 注意：这里已经去掉了失效的 KOTLIN_MAVEN (bintray)
     }
+}
+
+// 保持原有的任务定义（如果有）
+task clean(type: Delete) {
+    delete rootProject.buildDir
 }

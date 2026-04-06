@@ -1,19 +1,12 @@
 package dji.sampleV5.aircraft.mqtthandle
 
-import android.R
-import android.R.id.message
 import android.content.Context
-import android.location.Location
-import android.util.Log
 import dji.sampleV5.aircraft.DJIApplication
 import dji.sampleV5.aircraft.manager.LocationService
 import androidx.lifecycle.MutableLiveData
 import com.dji.util.FileLogger
-import com.dji.wpmzsdk.common.utils.kml.model.Location2D
-import com.dji.wpmzsdk.common.utils.kml.model.LocationCoordinate3D
 import com.google.gson.Gson
 import dji.sampleV5.aircraft.data.MissionUploadStateInfo
-import org.json.JSONObject
 import com.tji.network.MqttManager
 import dji.sampleV5.aircraft.data.HomeLocation
 import dji.sampleV5.aircraft.data.SetHomeLocationRequest
@@ -28,8 +21,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import java.io.File
-import kotlin.jvm.java
 
 /**
  * MQTT 消息处理器（重构后）
@@ -46,6 +37,7 @@ class MqttMessageHandler(
 ) {
     companion object {
         private const val TAG = "MqttMessageHandler"
+        private const val MQTT_PAYLOAD_PREVIEW_MAX = 256
         private const val api_TaskFile= "/api/work/setTaskFile_"
         private const val api_UavControl= "/api/machine/uav/control_"
 
@@ -90,13 +82,17 @@ class MqttMessageHandler(
                 // 如果解析成功，调用处理命令的方法
                 handleControlCommand(request, key)
             } else {
-                // 如果解析失败，记录日志或者做其他处理
-                Log.e("MqttSubscription", "无法解析消息: $message")
-
+                FileLogger.w(TAG, "UAV 控制消息无法解析 len=${message.length} ${mqttPayloadPreview(message)}")
             }
         }
 
 
+    }
+
+    private fun mqttPayloadPreview(raw: String): String {
+        val t = raw.trim()
+        return if (t.length <= MQTT_PAYLOAD_PREVIEW_MAX) t
+        else t.take(MQTT_PAYLOAD_PREVIEW_MAX) + "…(总长度=${t.length})"
     }
 
     /*
@@ -110,9 +106,12 @@ class MqttMessageHandler(
         mqttManager.subscribe(
             topic = topic,
             onMessage = { message ->
-                Log.d(TAG, "📩 收到消息 - Topic: $topic")
-                Log.d(TAG, "Message: $message")
-                handler(message)
+                FileLogger.i(TAG, "MQTT 收到 topic=$topic len=${message.length} ${mqttPayloadPreview(message)}")
+                try {
+                    handler(message)
+                } catch (e: Exception) {
+                    FileLogger.e(TAG, "MQTT 消息处理异常 topic=$topic", e)
+                }
             }
         )
     }
@@ -130,15 +129,12 @@ class MqttMessageHandler(
         // 将下发的任务ID设置到 CameraService
         if (request.taskId.isNotEmpty()) {
             cameraService.setTaskId(request.taskId)
-            Log.d(TAG, "设置航线任务ID到 CameraService: ${request.taskId}")
         }
-        
-        // 保存任务文件名，用于断点续飞
-        // 使用 request.key 构造文件名，与实际上传的文件名一致（FileDownloader 使用 request.key + ".kmz"）
-        // 在 startMission 中使用 FileUtils.getFileName 会去掉扩展名，所以这里也保存不带扩展名的文件名
         if (request.key.isNotEmpty()) {
-            currentMissionFileName = request.key  // 例如: "WH_001_UAV_001"，与 startMission 中的 missionId 一致
-            Log.d(TAG, "保存任务文件名: $currentMissionFileName (来源: request.key，实际上传的文件名: ${currentMissionFileName}.kmz)")
+            currentMissionFileName = request.key
+        }
+        if (request.taskId.isNotEmpty() || request.key.isNotEmpty()) {
+            FileLogger.i(TAG, "setTaskFile taskId=${request.taskId} missionKey=${request.key}")
         }
 
         val response = UavControlResponse(
@@ -175,8 +171,8 @@ class MqttMessageHandler(
         val requestType = request?.homeLocation
 
         if (requestType == null ) {
-            FileLogger.d(TAG, "⚠️ 收到响应消息或无效消息，忽略: $request")
-            return  // 这是响应消息，不处理
+            FileLogger.throttledD(TAG, "ignoreSetHomeInvalid", "setHomeLocation 非请求或无效消息，已忽略", 30_000L)
+            return
         }
 
 
@@ -193,20 +189,17 @@ class MqttMessageHandler(
             finalLatitude = homeLocation!!.latitude
             finalLongitude = homeLocation!!.longitude
             remoteControllerLocation = HomeLocation(finalLongitude, finalLatitude)
-            Log.d(TAG, "保存遥控器位置: lat=$finalLatitude, lon=$finalLongitude")
+            FileLogger.i(TAG, "setHomeLocation 使用MQTT坐标 lat=$finalLatitude lon=$finalLongitude")
         } else {
-            // 如果经纬度为空或无效，从 GPS 获取
-            Log.d(TAG, "MQTT 消息中的经纬度无效，尝试从 GPS 获取位置")
             val locationService = (context.applicationContext as? DJIApplication)?.getLocationService()
             val gpsLocation = locationService?.getLastLocation()
             
             if (gpsLocation != null) {
                 finalLatitude = gpsLocation.latitude
                 finalLongitude = gpsLocation.longitude
-                Log.d(TAG, "使用 GPS 位置: lat=$finalLatitude, lon=$finalLongitude")
+                FileLogger.i(TAG, "setHomeLocation 使用本机GPS 替代无效MQTT坐标 lat=$finalLatitude lon=$finalLongitude")
             } else {
-                // GPS 位置也不可用，返回错误
-                Log.e(TAG, "无法获取位置：MQTT 消息中的经纬度无效，且 GPS 位置不可用")
+                FileLogger.e(TAG, "setHomeLocation 失败：MQTT坐标无效且GPS不可用", null)
                 val errorResponse = UavControlResponse(
                     key = key,
                     tid = request?.tid ?: "",
@@ -235,7 +228,7 @@ class MqttMessageHandler(
         location2D.latitude = finalLatitude
         location2D.longitude = finalLongitude
 
-        Log.d(TAG, "设置返航点: lat=${location2D.latitude}, lon=${location2D.longitude}")
+        FileLogger.i(TAG, "setHomeLocation 执行 lat=${location2D.latitude} lon=${location2D.longitude}")
 
         // 调用飞行控制服务设置返航点
         flightControlService.setHomeLocation(location2D, response)
@@ -247,7 +240,6 @@ class MqttMessageHandler(
     private fun handlePauseResumeMission(message: String, mqttManager: MqttManager, key: String) {
         // 如果消息包含 result 字段，说明是响应消息，直接忽略（避免循环处理）
         if (message.contains("\"result\"") || message.contains("result")) {
-            Log.d(TAG, "收到响应消息，忽略处理")
             return
         }
 
@@ -255,18 +247,18 @@ class MqttMessageHandler(
         val request: PauseResumeMissionRequest? = try {
             message.fromJson<PauseResumeMissionRequest>()
         } catch (e: Exception) {
-            Log.e(TAG, "解析断点续飞请求失败: ${e.message}")
+            FileLogger.e(TAG, "解析 pauseResumeMission 失败: ${e.message}", e)
             return
         }
 
         if (request == null) {
-            Log.e(TAG, "断点续飞请求为空")
+            FileLogger.e(TAG, "pauseResumeMission 请求为空", null)
             return
         }
 
         // 检查 tid
         if (request.tid.isBlank()) {
-            Log.e(TAG, "断点续飞请求缺少 tid 字段")
+            FileLogger.e(TAG, "pauseResumeMission 缺少 tid", null)
             return
         }
 
@@ -279,21 +271,30 @@ class MqttMessageHandler(
             result = "TRUE"
         )
 
-        Log.d(TAG, "处理断点续飞指令 - type: ${request.type}, tid: ${request.tid}")
+        FileLogger.i(TAG, "pauseResumeMission type=${request.type} tid=${request.tid}")
+        val missionName = currentMissionFileName
+
+        if (missionName.isNullOrBlank()) {
+            FileLogger.e(TAG, "pauseResumeMission 无任务文件名，请先 setTaskFile", null)
+            response.message = "无法获取任务文件名，请先通过 setTaskFile 下发任务文件"
+            response.result = "FALSE"
+            sendResponse(response)
+            return
+        }
 
         when (request.type) {
             0 -> {
-                // 暂停任务
-                Log.d(TAG, "执行暂停任务")
                 missionControlService.pauseMission(
+                    missionFileName = missionName,
+
                     onSuccess = {
-                        Log.d(TAG, "暂停任务成功")
+                        FileLogger.i(TAG, "pauseResumeMission 暂停成功 mission=$missionName")
                         response.message = "暂停任务成功"
                         response.result = "TRUE"
                         sendResponse(response)
                     },
                     onFailure = { error ->
-                        Log.e(TAG, "暂停任务失败: $error")
+                        FileLogger.e(TAG, "pauseResumeMission 暂停失败: $error", null)
                         response.message = error
                         response.result = "FALSE"
                         sendResponse(response)
@@ -301,31 +302,16 @@ class MqttMessageHandler(
                 )
             }
              1 -> {
-                // 从断点恢复任务
-                Log.d(TAG, "执行从断点恢复任务")
-                
-                // 使用保存的任务文件名（从 TaskFileRequest 中获取）
-                val missionFileName = currentMissionFileName
-                
-                if (missionFileName.isNullOrBlank()) {
-                    Log.e(TAG, "无法获取任务文件名，无法从断点恢复任务（请先通过 setTaskFile 下发任务文件）")
-                    response.message = "无法获取任务文件名，请先通过 setTaskFile 下发任务文件"
-                    response.result = "FALSE"
-                    sendResponse(response)
-                }
-                
-                Log.d(TAG, "使用保存的任务文件名: $missionFileName")
-                
                 missionControlService.resumeMissionFromBreakpoint(
-                    missionFileName = missionFileName,
+                    missionFileName = missionName,
                     onSuccess = {
-                        Log.d(TAG, "从断点恢复任务成功")
+                        FileLogger.i(TAG, "pauseResumeMission 断点恢复成功 mission=$missionName")
                         response.message = "从断点恢复任务成功"
                         response.result = "TRUE"
                         sendResponse(response)
                     },
                     onFailure = { error ->
-                        Log.e(TAG, "从断点恢复任务失败: $error")
+                        FileLogger.e(TAG, "pauseResumeMission 断点恢复失败: $error", null)
                         response.message = error
                         response.result = "FALSE"
                         sendResponse(response)
@@ -333,7 +319,7 @@ class MqttMessageHandler(
                 )
             }
             else -> {
-                Log.w(TAG, "未知的断点续飞类型: ${request.type}")
+                FileLogger.w(TAG, "pauseResumeMission 未知 type=${request.type}")
                 response.message = "未知的断点续飞类型: ${request.type}"
                 response.result = "FALSE"
                 sendResponse(response)
@@ -351,13 +337,13 @@ class MqttMessageHandler(
         // ✅ 判断是否是控制请求（有 type 字段）
         val requestType = request.type
         if (requestType == null || requestType == 0) {
-            FileLogger.d(TAG, "⚠️ 收到响应消息或无效消息，忽略: $request")
-            return  // 这是响应消息，不处理
+            FileLogger.throttledD(TAG, "ignoreUavControlInvalid", "uav/control 响应或无效 type，已忽略", 30_000L)
+            return
         }
 
         // ✅ 检查 tid
         if (request.tid.isNullOrBlank()) {
-            FileLogger.e(TAG, "❌ 控制命令缺少 tid 字段")
+            FileLogger.e(TAG, "uav/control 缺少 tid", null)
             return
         }
 
@@ -369,7 +355,7 @@ class MqttMessageHandler(
             result = "TRUE"
         )
 
-        FileLogger.d(TAG, "📩 处理控制命令 - type: $requestType, tid: ${request.tid}")
+        FileLogger.i(TAG, "uav/control type=$requestType tid=${request.tid} param=${request.parameter}")
 
         when (requestType) {
             1 -> handleTakeoff(response)
@@ -377,8 +363,11 @@ class MqttMessageHandler(
             3 -> handleReturnHome(response)
             4 -> handleTakePhoto(response)
             5 -> handleRecordVideo(request, response)
+            6 -> handleMissionControl(request, response)
+            7 -> handleCameraMode(request, response)
+            9 -> handleControlAuthority(request, response)
             else -> {
-                FileLogger.w(TAG, "⚠️ 未知的控制类型: $requestType")
+                FileLogger.w(TAG, "uav/control 未知 type=$requestType")
                 response.message = "未知的控制类型: $requestType"
                 response.result = "FALSE"
                 sendResponse(response)
@@ -407,7 +396,7 @@ class MqttMessageHandler(
 
     /**
      * 处理录像命令 (type = 5)
-     * parameter: 0=停止录像, 1=开始录像
+     * parameter: 1=开始录像, 2=停止录像
      */
     private fun handleRecordVideo(request: UavControlRequest, response: UavControlResponse) {
         when (request.parameter) {
@@ -419,6 +408,118 @@ class MqttMessageHandler(
                 sendResponse(response)
             }
         }
+    }
+
+    /**
+     * 处理航线控制命令 (type = 6)
+     * parameter: 1=航线暂停, 2=航线继续, 3=终止并悬停, 4=终止并按航线策略返航
+     */
+    private fun handleMissionControl(request: UavControlRequest, response: UavControlResponse) {
+        val missionFileName = currentMissionFileName
+        if (missionFileName.isNullOrBlank()) {
+            FileLogger.e(TAG, "航线控制无任务文件名，请先 setTaskFile", null)
+            response.message = "无法获取任务文件名，请先通过 setTaskFile 下发任务文件"
+            response.result = "FALSE"
+            sendResponse(response)
+            return
+        }
+
+        when (request.parameter) {
+            1 -> {
+                missionControlService.pauseMission(
+                    missionFileName = missionFileName,
+                    onSuccess = {
+                        FileLogger.i(TAG, "航线控制 暂停成功 mission=$missionFileName")
+                        response.message = "航线暂停成功"
+                        response.result = "TRUE"
+                        sendResponse(response)
+                    },
+                    onFailure = { error ->
+                        FileLogger.e(TAG, "航线控制 暂停失败: $error", null)
+                        response.message = error
+                        response.result = "FALSE"
+                        sendResponse(response)
+                    }
+                )
+            }
+            2 -> {
+                missionControlService.resumeMissionFromBreakpoint(
+                    missionFileName = missionFileName,
+                    onSuccess = {
+                        FileLogger.i(TAG, "航线控制 继续成功 mission=$missionFileName")
+                        response.message = "航线继续成功"
+                        response.result = "TRUE"
+                        sendResponse(response)
+                    },
+                    onFailure = { error ->
+                        FileLogger.e(TAG, "航线控制 继续失败: $error", null)
+                        response.message = error
+                        response.result = "FALSE"
+                        sendResponse(response)
+                    }
+                )
+            }
+            3 -> {
+                missionControlService.stopMission(
+                    missionFileName = missionFileName,
+                    onSuccess = {
+                        FileLogger.i(TAG, "航线控制 终止悬停成功 mission=$missionFileName")
+                        response.message = "终止并悬停成功"
+                        response.result = "TRUE"
+                        sendResponse(response)
+                    },
+                    onFailure = { error ->
+                        FileLogger.e(TAG, "航线控制 终止悬停失败: $error", null)
+                        response.message = error
+                        response.result = "FALSE"
+                        sendResponse(response)
+                    }
+                )
+            }
+            4 -> {
+                missionControlService.stopMission(
+                    missionFileName = missionFileName,
+                    onSuccess = {
+                        FileLogger.i(TAG, "航线控制 终止后返航 mission=$missionFileName")
+                        flightControlService.returnHome(response)
+                    },
+                    onFailure = { error ->
+                        FileLogger.e(TAG, "航线控制 终止失败: $error", null)
+                        response.message = error
+                        response.result = "FALSE"
+                        sendResponse(response)
+                    }
+                )
+            }
+            else -> {
+                FileLogger.w(TAG, "航线控制 未知 parameter=${request.parameter}")
+                response.message = "未知的航线控制参数: ${request.parameter}"
+                response.result = "FALSE"
+                sendResponse(response)
+            }
+        }
+    }
+
+    /**
+     * 处理相机模式命令 (type = 7)
+     * parameter: 1=广角, 2=长焦, 3=红外
+     */
+    private fun handleCameraMode(request: UavControlRequest, response: UavControlResponse) {
+        // 1=广角 (LEFT_OR_MAIN), 2=长焦 (RIGHT), 3=红外/第三路
+        cameraService.switchActiveCameraByParameter(request.parameter, response)
+    }
+
+    /**
+     * 处理控制权模式命令 (type = 9)
+     * parameter: 1=控制权获取, 2=控制权释放
+     */
+    private fun handleControlAuthority(request: UavControlRequest, response: UavControlResponse) {
+        // TODO: 实现控制权获取/释放
+        // 需要调用 FlightControlService 的相关方法
+        FileLogger.w(TAG, "控制权模式待实现 parameter=${request.parameter}")
+        response.message = "控制权模式功能待实现"
+        response.result = "FALSE"
+        sendResponse(response)
     }
 
 //    private fun handlePauseMission(message: String, mqttManager: MqttManager) {

@@ -24,6 +24,7 @@ class MissionControlService {
      * 暂停任务
      */
     fun pauseMission(
+        missionFileName: String,
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit
     ) {
@@ -32,8 +33,7 @@ class MissionControlService {
 
             WaypointMissionManager.getInstance().pauseMission(object : CommonCallbacks.CompletionCallback {
                 override fun onSuccess() {
-                    Log.d(TAG, "暂停任务成功")
-                    onSuccess()
+                    stopMission(missionFileName,onSuccess, onFailure)
                 }
                 override fun onFailure(error: IDJIError) {
                     Log.e(TAG, "暂停任务失败: ${error.description()}")
@@ -56,18 +56,6 @@ class MissionControlService {
     ) {
         try {
             Log.d(TAG, "恢复任务")
-
-            // TODO: 调用 MSDK 恢复航线
-            // WaypointMissionManager.getInstance().resumeMission(object : CommonCallbacks.CompletionCallback {
-            //     override fun onSuccess() {
-            //         Log.d(TAG, "恢复任务成功")
-            //         onSuccess()
-            //     }
-            //     override fun onFailure(error: IDJIError) {
-            //         Log.e(TAG, "恢复任务失败: ${error.description()}")
-            //         onFailure(error.description())
-            //     }
-            // })
 
             // 临时模拟成功
             onSuccess()
@@ -222,15 +210,7 @@ class MissionControlService {
         try {
             Log.d(TAG, "执行地面重启任务（stopMission + startMission）...")
 
-            // 第一步：先停止任务
-            WaypointMissionManager.getInstance().stopMission(
-                missionFileName,
-                object : CommonCallbacks.CompletionCallback {
-                    override fun onSuccess() {
-                        Log.d(TAG, "停止任务成功，开始从断点启动任务...")
-
-                        // 第二步：使用断点信息启动任务
-                        WaypointMissionManager.getInstance().startMission(
+            WaypointMissionManager.getInstance().startMission(
                             missionFileName,
                             breakPointInfo,
                             object : CommonCallbacks.CompletionCallback {
@@ -245,14 +225,7 @@ class MissionControlService {
                                 }
                             }
                         )
-                    }
 
-                    override fun onFailure(error: IDJIError) {
-                        Log.e(TAG, "停止任务失败: ${error.description()}")
-                        onFailure("停止任务失败: ${error.description()}")
-                    }
-                }
-            )
         } catch (e: Exception) {
             Log.e(TAG, "地面重启任务异常: ${e.message}", e)
             onFailure("地面重启任务异常: ${e.message}")

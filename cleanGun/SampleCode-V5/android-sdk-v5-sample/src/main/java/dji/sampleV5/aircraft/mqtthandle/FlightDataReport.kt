@@ -1,18 +1,14 @@
 package dji.sampleV5.aircraft.mqtthandle
 
-import android.util.Log
-import com.amap.api.map3d.R
-import com.dji.network.MQTTConfig
 import com.dji.util.FileLogger
 import com.tji.network.MqttManager
-import dji.sdk.keyvalue.value.flightcontroller.AirSenseAirplaneState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-class FlightDataReport(key: String) {
+class FlightDataReport(key: String, cameraService: CameraService? = null) {
 
     private var flightDataReportJob: Job? = null
     private val deviceManager = DeviceDataManager()
@@ -21,7 +17,9 @@ class FlightDataReport(key: String) {
 
     init {
         this.key = key
-        FileLogger.i("FlightDataReport", "初始化飞行数据上报服务, key=$key")
+        // 设置 CameraService 引用到 DeviceDataManager
+        deviceManager.cameraService = cameraService
+        FileLogger.i("FlightDataReport", "初始化飞行数据上报服务, key=$key, cameraService=${if (cameraService != null) "已设置" else "未设置"}")
         startFlightDataReport()
     }
 
@@ -29,28 +27,25 @@ class FlightDataReport(key: String) {
     private fun startFlightDataReport() {
         // 只在没有运行的情况下启动新的任务
         if (flightDataReportJob?.isActive != true) {
-            FileLogger.i("FlightDataReport", "启动协程任务 - 飞行数据上报")
+            FileLogger.i("FlightDataReport", "启动飞行数据上报循环")
             flightDataReportJob = CoroutineScope(Dispatchers.IO).launch {
-                FileLogger.thread("FlightDataReport", "协程启动 - 飞行数据上报循环")
                 try {
                     var loopCount = 0
-                    while (true) { // 每秒上报 5 次
+                    while (true) {
                         loopCount++
                         try {
-                            // 更新所有设备数据
                             deviceManager.updateAllData()
-
-                            // 获取上报格式的 JSON 字符串
                             val jsonData = deviceManager.getFlightReportData().toJsonString()
-
-                            // 发布到 MQTT 服务器
                             MqttManager.getInstance().publish(
-                                topic = "/api/machine/uav/info_$key",  // 主题
-                                message = jsonData,  // 消息内容
+                                topic = "/api/machine/uav/info_$key",
+                                message = jsonData,
                                 onSuccess = {
-                                    if (loopCount % 50 == 0) {  // 每50次记录一次成功
-                                        FileLogger.d("FlightDataReport", "MQTT发布成功 #$loopCount")
-                                    }
+                                    FileLogger.throttledD(
+                                        "FlightDataReport",
+                                        "mqttPublishOk",
+                                        "MQTT 周期上报正常 loop=$loopCount",
+                                        60_000L
+                                    )
                                 },
                                 onError = { throwable ->
                                     FileLogger.e("FlightDataReport", "MQTT发布失败: ${throwable.message}", throwable)
@@ -85,7 +80,6 @@ class FlightDataReport(key: String) {
      * 注意：在不再使用时必须调用此方法，避免内存泄漏
      */
     fun destroy() {
-        FileLogger.thread("FlightDataReport", "销毁飞行数据上报服务 - destroy")
         try {
             // 取消所有任务
             cancelFlightDataReport()

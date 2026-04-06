@@ -1,5 +1,7 @@
 # 功能总览
 
+**当前发行版：V1.1.7（2026-04-06）** — 本版本相对上一版的全部变更见文末 **「最新更新（V1.1.7）」**（该节仅描述本次发布，不含历史版本罗列）。
+
 基于大疆 MSDK V5 开发的自定义功能列表
 
 ## 项目概述
@@ -354,6 +356,33 @@ fcDeviceIdList = listOf(
 
 ## 版本更新记录
 
+### v1.1.7 (2026-04-06)
+
+**飞行数据与状态上报**
+
+- `FlightReportData` / MQTT 状态包新增字段：`relativeAltitudeFromTakeoff`（相对起飞点高度）、`altitudeAMSL`（推算海拔）、`currentTaskStatus`、`waypointMissionExecuteState`、`cameraMode`；`AircraftData` 增加 `relativeAltitudeFromTakeoff`、`cameraShootingModeName`，并由 `DeviceDataManager` 从 MSDK Key 与航线监听同步。
+
+**航线控制与上传**
+
+- `MissionControlService.pauseMission` 增加 `missionFileName`，暂停成功后串联 `stopMission`，与「暂停即结束当前执行」的预期一致。
+- 地面断点恢复路径去掉多余的「先 stop 再 start」嵌套，在通过校验后直接 `startMission(missionFileName, breakPointInfo, …)`，减少无效停止与失败点。
+- `MissionFileUploader`：使用 `SupervisorJob` 管理上传协程，提供 `cancelPendingUploads()` 与 `CameraService` 生命周期对齐；任务文件夹内照片/视频按**文件名排序**后再收集上传，顺序稳定。
+
+**RTMP 与界面**
+
+- `StreamConfig`：`autoReconnectCount == 0` 语义明确为**无限重连直至 `stopStreaming`**；默认重连基础间隔由 3000ms 调整为 **1000ms**（仍为指数退避上限 30s）。
+- 主界面 `activity_main.xml` 增加「当前版本」展示（`app_version_tv`，与 `DJIMainActivity` 中 `BuildConfig.VERSION_NAME` 绑定）。
+
+**日志与可观测性（不改变业务分支逻辑）**
+
+- `FileLogger`（network 模块）：`fileLoggingEnabled`、`minLevelForFile`、`applyDefaultPolicy`（Debug 全量写文件 / Release 默认 INFO 及以上写文件）、`throttledD`、`logStateChange`；未捕获异常合并为**单条**崩溃记录。
+- 热点模块精简刷屏日志并统一关键路径：`CameraService`、`FpvRtmpStreamer`、`VideoFrameProcessor`、`MqttMessageHandler`、`DeviceDataManager`、`FlightDataReport`、`DJIMainActivity`。
+- `LogManager`：列表最多 **500** 条，连续相同条目合并为 ` (×N)`。
+
+**说明：** 上述日志类改动仅调整输出方式、级别与节流，**不修改** MQTT 路由、任务状态机、下载上传判定、RTMP 送帧与重连策略等业务逻辑。
+
+---
+
 ### v1.1.4 (2026-01-17)
 
 **新增功能：**
@@ -461,26 +490,39 @@ android-sdk-v5-network/
 
 ---
 
-**最后更新日期：** 2026-01-17
+**最后更新日期：** 2026-04-06
 
 ---
 
-## 最新更新（v1.1.4）
+## 最新更新（V1.1.7）
 
-### 航线控制功能整合
+本节**仅**记录 **V1.1.7** 相对上一版的变更（与上文「版本更新记录 → v1.1.7」一致，便于文末快速查阅）。
 
-断点续飞功能已整合到统一的 UAV 控制命令中，通过 `type=6` 和不同的 `parameter` 值来控制：
+### 一、飞行数据与状态上报
 
-- **暂停任务**：`type=6, parameter=1`
-- **继续任务**：`type=6, parameter=2`
-- **终止并悬停**：`type=6, parameter=3`
-- **终止并返航**：`type=6, parameter=4`
+| 类型 | 变更 |
+|------|------|
+| `FlightReportData` / MQTT JSON | 新增 `relativeAltitudeFromTakeoff`、`altitudeAMSL`、`currentTaskStatus`、`waypointMissionExecuteState`、`cameraMode` |
+| `AircraftData` | 新增 `relativeAltitudeFromTakeoff`、`cameraShootingModeName` |
+| `DeviceDataManager` | 从飞控 Key 与航线监听填充上述字段，并参与周期上报 |
 
-不再需要单独的 `/api/work/pauseResumeMission_{key}` MQTT 主题。
+### 二、航线控制与任务上传
 
-### 状态包增强
+- **暂停任务**：`MissionControlService.pauseMission` 需传入 `missionFileName`；`pauseMission` 成功后会调用 `stopMission`，避免仅暂停未停止导致状态与预期不符。
+- **地面断点恢复**：去掉多余的「先 `stopMission` 再 `startMission`」；校验通过后直接 `startMission(missionFileName, breakPointInfo, …)`。
+- **任务文件上传**：`MissionFileUploader` 使用 `SupervisorJob`，支持 `cancelPendingUploads()`；照片/视频目录内文件按**文件名排序**后上传，顺序可复现。
 
-状态包新增两个字段：
-- `currentTaskStatus`：当前任务状态（0=待命, 2=执行航线, 3=返航, 6=降落完成, 8=下载媒体, 9=上传媒体, 10=任务中断, -1=未知）
-- `waypointMissionExecuteState`：航线任务执行状态（IDLE, READY, UPLOADING, PREPARING, ENTER_WAYLINE, EXECUTING, INTERRUPTED, RECOVERING, FINISHED 等）
+### 三、RTMP 与主界面
 
+- **StreamConfig**：`autoReconnectCount == 0` 表示**无限重连**直到 `stopStreaming`；`reconnectIntervalMs` 默认 **1000ms**（指数退避，上限 30s）。
+- **主界面**：增加「当前版本」文案与 `app_version_tv`，显示 `BuildConfig.VERSION_NAME`。
+
+### 四、日志系统（无业务逻辑变更）
+
+- **FileLogger**：文件开关、按级别写盘、Debug/Release 默认策略、`throttledD`、`logStateChange`、崩溃单条记录。
+- **样例工程**：`CameraService`、`FpvRtmpStreamer`、`VideoFrameProcessor`、`MqttMessageHandler`、`DeviceDataManager`、`FlightDataReport`、`DJIMainActivity` 等热点日志精简与关键路径加强。
+- **LogManager**：最多 500 条、连续重复合并为 ` (×N)`。
+
+---
+
+**历史版本说明：** v1.1.4 及更早的航线控制整合、状态包字段等说明已写入上文「版本更新记录」对应小节，本文末不再重复展开。

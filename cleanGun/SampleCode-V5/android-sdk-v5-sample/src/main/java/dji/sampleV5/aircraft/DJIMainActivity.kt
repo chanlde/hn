@@ -22,6 +22,7 @@ import dji.sampleV5.aircraft.util.ToastUtils
 import dji.v5.utils.common.PermissionUtil
 
 import android.widget.TextView
+import dji.sampleV5.aircraft.BuildConfig
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import com.amap.api.maps.MapsInitializer
@@ -115,9 +116,7 @@ abstract class DJIMainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         
         // 日志系统已在 Application 中初始化，这里直接使用即可
-        FileLogger.i(TAG, "========================================")
-        FileLogger.i(TAG, "DJIMainActivity.onCreate() 开始")
-        FileLogger.thread(TAG, "Activity 创建线程")
+        FileLogger.i(TAG, "DJIMainActivity.onCreate")
 
         ConfigManager.init(this)
 
@@ -144,6 +143,8 @@ abstract class DJIMainActivity : AppCompatActivity() {
         mqttManager = MqttManager.getInstance()
 
         fcSnTv = findViewById(R.id.fc_sn_tv)
+
+        findViewById<TextView>(R.id.app_version_tv).text = BuildConfig.VERSION_NAME
     }
 
 
@@ -203,12 +204,12 @@ abstract class DJIMainActivity : AppCompatActivity() {
                     // 等待获取飞机SN
                     waitForFcSn { deviceId ->
                         if (deviceId.isNullOrBlank()) {
-                            FileLogger.e(TAG, "❌ 无法获取飞机SN，停止执行")
+                            FileLogger.e(TAG, "无法获取飞机SN，停止执行", null)
                             showToast("无法获取飞机SN，请检查设备连接")
                             return@waitForFcSn
                         }
 
-                        FileLogger.i(TAG, "✅ 成功获取飞机SN: $deviceId")
+                        FileLogger.i(TAG, "成功获取飞机SN: $deviceId")
 
                         prepareUxActivity()
                         landingConfirmationListener = LandingConfirmationListener()
@@ -216,21 +217,17 @@ abstract class DJIMainActivity : AppCompatActivity() {
 
                         mqttManager.connect (
                             onConnected = {
-                                FileLogger.i(TAG, "MQTT 连接成功")
                                 messageHandler.setupSubscriptions(mqttManager, deviceId)
-                                FileLogger.d(TAG, "MQTT 订阅已设置, deviceId: $deviceId")
-                                // 创建飞行数据上报服务
-                                flightDataReport = FlightDataReport(deviceId)
-                                FileLogger.d(TAG, "FlightDataReport 已创建, deviceId: $deviceId")
+                                flightDataReport = FlightDataReport(deviceId, cameraService)
+                                FileLogger.i(TAG, "MQTT 已连接并完成订阅与 FlightDataReport 初始化 deviceId=$deviceId")
                             },
 
                             onFailed = { throwable ->
                                 FileLogger.e(TAG, "MQTT 连接失败: ${throwable.message}", throwable)
                             }
                         )
-                        FileLogger.i(TAG, "准备启动 DefaultLayoutActivity")
                         startActivity(Intent(this, DefaultLayoutActivity::class.java))
-                        FileLogger.i(TAG, "DefaultLayoutActivity 已启动")
+                        FileLogger.i(TAG, "已启动 DefaultLayoutActivity")
                     }
                 }, 1000)
 
@@ -256,17 +253,18 @@ abstract class DJIMainActivity : AppCompatActivity() {
         fun checkFcSn() {
             val deviceId = getFcSn()
 
+
             if (deviceId.isNotBlank()) {
                 // 获取到SN，直接继续执行
-                FileLogger.i(TAG, "✅ 成功获取飞机SN: $deviceId")
+                FileLogger.i(TAG, "成功获取飞机SN: $deviceId")
                 onSuccess(deviceId)
             } else {
                 retryCount++
                 if (retryCount < maxRetries) {
-                    FileLogger.d(TAG, "等待获取飞机SN... (重试 $retryCount/$maxRetries)")
+                    FileLogger.throttledD(TAG, "waitFcSn", "等待飞机SN 重试 $retryCount/$maxRetries", 3_000L)
                     handler.postDelayed({ checkFcSn() }, retryInterval)
                 } else {
-                    FileLogger.e(TAG, "❌ 获取飞机SN超时，已重试 $maxRetries 次")
+                    FileLogger.e(TAG, "获取飞机SN超时，已重试 $maxRetries 次", null)
                     showToast("获取飞机SN超时，请检查设备连接")
                     onSuccess("") // 返回空字符串表示失败
                 }
@@ -319,31 +317,20 @@ abstract class DJIMainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        FileLogger.thread(TAG, "DJIMainActivity.onDestroy() 开始")
-        FileLogger.i(TAG, "开始清理所有资源")
+        FileLogger.i(TAG, "DJIMainActivity.onDestroy 开始清理")
         
         try {
             handler.removeCallbacksAndMessages(null)
-            FileLogger.d(TAG, "Handler 回调已清理")
 
-            // 销毁降落确认监听器
             if (::landingConfirmationListener.isInitialized) {
                 landingConfirmationListener.destroy()
-                FileLogger.d(TAG, "LandingConfirmationListener 已销毁")
             } else {
                 FileLogger.w(TAG, "LandingConfirmationListener 未初始化，跳过销毁")
             }
 
-            // 销毁 CameraService 资源
             cameraService.destroy()
-            FileLogger.d(TAG, "CameraService 已销毁")
-
-            // 销毁飞行数据上报服务
             flightDataReport?.destroy()
-            FileLogger.d(TAG, "FlightDataReport 已销毁")
-
-            FileLogger.i(TAG, "所有资源已清理完成")
-            FileLogger.i(TAG, "========================================")
+            FileLogger.i(TAG, "DJIMainActivity 资源清理完成")
         } catch (e: Exception) {
             FileLogger.e(TAG, "onDestroy 清理资源时发生异常", e)
         }
