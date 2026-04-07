@@ -4,7 +4,10 @@
 
 `FlightDataWidget` 用于显示飞行数据，目前支持：
 - ✅ **位置数据**：经度、纬度、高度
-- 🔄 **可扩展**：方便后期添加姿态、速度、电池等数据
+- ✅ **速度**、**海拔（AMSL）**、**当前航点索引**（航线执行中）
+- 🔄 **可扩展**：方便后期添加姿态、电池等数据
+
+**当前航点索引**：来自 `WaypointMissionManager` 的 `WaylineExecutingInfoListener.onWaylineExecutingInfoUpdate`，与 sample 工程里 `DeviceDataManager` / MQTT 上报字段 `currentWaypointIndex` 同源；无航线或未回调时为 `--`。
 
 ## 🚀 快速开始
 
@@ -64,6 +67,9 @@ data class LocationData(
 经度: 118.774781
 纬度: 31.833779
 高度: 99.96m
+速度: 1.23m/s
+海拔: 123.45m
+当前航点: 3
 ```
 
 ## 🔧 扩展其他数据

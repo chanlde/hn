@@ -16,7 +16,6 @@ import dji.sdk.keyvalue.key.RemoteControllerKey
 import dji.sdk.keyvalue.value.camera.CameraMode
 import dji.sdk.keyvalue.value.common.ComponentIndexType
 import dji.v5.common.error.IDJIError
-import android.location.Location
 import dji.sampleV5.aircraft.DJIApplication
 import dji.sampleV5.aircraft.manager.LocationService
 import dji.v5.manager.KeyManager
@@ -27,7 +26,6 @@ import dji.v5.manager.aircraft.waypoint3.model.WaylineExecutingInfo
 import dji.v5.manager.aircraft.waypoint3.model.WaypointMissionExecuteState
 import dji.v5.common.callback.CommonCallbacks
 import dji.sdk.keyvalue.key.KeyTools
-import dji.sdk.keyvalue.value.flightcontroller.FCFlightMode
 import dji.sdk.keyvalue.value.flightcontroller.FlightMode
 import dji.sdk.keyvalue.value.flightcontroller.LowBatteryRTHInfo
 import dji.v5.manager.datacenter.media.MediaFileListState
@@ -106,16 +104,29 @@ class DeviceDataManager {
     private inner class WaylineExecutingInfoListenerImpl : WaylineExecutingInfoListener {
         override fun onWaylineExecutingInfoUpdate(info: WaylineExecutingInfo) {
             synchronized(lock) {
+                val oldIdx = deviceData.aircraft.currentWaypointIndex
                 deviceData.aircraft.currentWaypointIndex = info.currentWaypointIndex
                 flightReportData.currentWaypointIndex = info.currentWaypointIndex
                 FileLogger.logStateChange(TAG, "currentWaypointIndex", info.currentWaypointIndex)
+                FileLogger.w(
+                    TAG,
+                    "[DIAG-WPIDX] waypointIndex: $oldIdx -> ${info.currentWaypointIndex}" +
+                        " | isFlying=${deviceData.aircraft.isFlying}" +
+                        " | missionState=${currentWaypointMissionExecuteState?.name}"
+                )
             }
         }
 
         override fun onWaylineExecutingInterruptReasonUpdate(error: IDJIError) {
             synchronized(lock) {
+                val wpAtInterrupt = deviceData.aircraft.currentWaypointIndex
+                val msAtInterrupt = currentWaypointMissionExecuteState?.name
                 isMissionInterrupted = true
                 currentTaskStatus = 10
+                FileLogger.w(
+                    TAG,
+                    "[DIAG-WP-INTERRUPT] 航线中断瞬间 wpIdx=$wpAtInterrupt missionState=$msAtInterrupt isFlying=${deviceData.aircraft.isFlying} -> taskStatus=10"
+                )
             }
             try {
                 val description = error.description() ?: "未知错误"
@@ -133,6 +144,7 @@ class DeviceDataManager {
 
         waylineExecutingInfoListener?.let {
             WaypointMissionManager.getInstance().addWaylineExecutingInfoListener(it)
+            FileLogger.i(TAG, "[DIAG-WP] WaylineExecutingInfoListener 已注册到 WaypointMissionManager")
         }
     }
 
@@ -141,8 +153,10 @@ class DeviceDataManager {
      */
     private fun removeWaylineListener() {
         waylineExecutingInfoListener?.let {
+            val wp = synchronized(lock) { deviceData.aircraft.currentWaypointIndex }
             WaypointMissionManager.getInstance().removeWaylineExecutingInfoListener(it)
             waylineExecutingInfoListener = null
+            FileLogger.w(TAG, "[DIAG-WP] WaylineExecutingInfoListener 已移除 | 移除前 wpIdx=$wp")
         }
     }
     
@@ -154,10 +168,19 @@ class DeviceDataManager {
             override fun onMissionStateUpdate(missionState: WaypointMissionExecuteState) {
                 synchronized(lock) {
                     val previousState = currentWaypointMissionExecuteState
+                    val wasActive = previousState != null && previousState != WaypointMissionExecuteState.READY
+                    val willReset = wasActive && missionState == WaypointMissionExecuteState.READY
+                    FileLogger.w(
+                        TAG,
+                        "[DIAG-STATE] missionState: ${previousState?.name} -> ${missionState.name}" +
+                            " | t=${System.currentTimeMillis()}" +
+                            " | isFlying=${deviceData.aircraft.isFlying}" +
+                            " | wpIdx=${deviceData.aircraft.currentWaypointIndex}" +
+                            " | willReset=$willReset"
+                    )
                     currentWaypointMissionExecuteState = missionState
                     FileLogger.logStateChange(TAG, "waypointMissionExecuteState", missionState.name)
 
-                    val wasActive = previousState != null && previousState != WaypointMissionExecuteState.READY
                     if (wasActive && missionState == WaypointMissionExecuteState.READY) {
                         FileLogger.i(TAG, "检测到任务结束 (${previousState?.name} -> READY)，重置任务状态")
                         resetMissionState()
@@ -168,6 +191,7 @@ class DeviceDataManager {
         
         waypointMissionExecuteStateListener?.let {
             WaypointMissionManager.getInstance().addWaypointMissionExecuteStateListener(it)
+            FileLogger.i(TAG, "[DIAG-WP] WaypointMissionExecuteStateListener 已注册到 WaypointMissionManager")
         }
     }
     
@@ -176,8 +200,12 @@ class DeviceDataManager {
      */
     private fun removeWaypointMissionExecuteStateListener() {
         waypointMissionExecuteStateListener?.let {
+            val (wp, ms) = synchronized(lock) {
+                deviceData.aircraft.currentWaypointIndex to currentWaypointMissionExecuteState?.name
+            }
             WaypointMissionManager.getInstance().removeWaypointMissionExecuteStateListener(it)
             waypointMissionExecuteStateListener = null
+            FileLogger.w(TAG, "[DIAG-WP] WaypointMissionExecuteStateListener 已移除 | 移除前 wpIdx=$wp missionState=$ms")
         }
     }
     
@@ -372,22 +400,55 @@ class DeviceDataManager {
             val aircraft = deviceData.aircraft
             val now = System.currentTimeMillis()
             val LANDING_FINISH_DURATION = 3000L  // 降落完成状态持续时间：3秒
+
+            fun logDiagTaskStatus() {
+                FileLogger.throttledD(
+                    TAG,
+                    "diagTaskStatus",
+                    "[DIAG-TASK] inputs: wpIdx=${aircraft.currentWaypointIndex}" +
+                        " isFlying=${aircraft.isFlying} flightMode=${aircraft.flightMode}" +
+                        " missionState=${currentWaypointMissionExecuteState?.name}" +
+                        " interrupted=$isMissionInterrupted lowBat=$isLowBatteryRTH" +
+                        " -> result=$currentTaskStatus",
+                    2000L
+                )
+            }
+
+            val missionState = currentWaypointMissionExecuteState
+            val missionActive = missionState != null && missionState != WaypointMissionExecuteState.READY
+            if (aircraft.isFlying == true && missionActive && aircraft.currentWaypointIndex == null) {
+                FileLogger.throttledD(
+                    TAG,
+                    "diagWpMiss",
+                    "[DIAG-WP-MISS] 飞行中且 mission=$missionState 但 currentWaypointIndex=null（可能丢索引/未回调）",
+                    1500L
+                )
+            }
             
             // 1. 状态 10 (任务中断) - 优先级最高
             if (isMissionInterrupted || isLowBatteryRTH) {
                 currentTaskStatus = 10
+                logDiagTaskStatus()
                 return
             }
             
             // 2. 状态 2 (执行航线) - 正在执行航线
             if (aircraft.currentWaypointIndex != null && aircraft.isFlying == true) {
                 currentTaskStatus = 2
+                FileLogger.throttledD(
+                    TAG,
+                    "diagWpTask2",
+                    "[DIAG-WP-TASK2] 判定执行航线 taskStatus=2 wpIdx=${aircraft.currentWaypointIndex} mission=${currentWaypointMissionExecuteState?.name}",
+                    3000L
+                )
+                logDiagTaskStatus()
                 return
             }
             
             // 3. 状态 3 (返航) - 飞行模式为返航
             if (aircraft.flightMode == FlightMode.GO_HOME && aircraft.isFlying == true) {
                 currentTaskStatus = 3
+                logDiagTaskStatus()
                 return
             }
             
@@ -395,6 +456,7 @@ class DeviceDataManager {
             if (wasFlying && aircraft.isFlying == false && lastLandingTime > 0) {
                 if (now - lastLandingTime < LANDING_FINISH_DURATION) {
                     currentTaskStatus = 6
+                    logDiagTaskStatus()
                     return
                 }
             }
@@ -403,12 +465,14 @@ class DeviceDataManager {
             val mediaState = cameraService?.getMediaFileListState()
             if (mediaState == MediaFileListState.UPDATING) {
                 currentTaskStatus = 8
+                logDiagTaskStatus()
                 return
             }
             
             // 6. 状态 9 (上传媒体) - 正在上传文件
             if (cameraService?.getIsUploading() == true) {
                 currentTaskStatus = 9
+                logDiagTaskStatus()
                 return
             }
             
@@ -416,17 +480,20 @@ class DeviceDataManager {
             // 到达此处时已排除所有活跃状态，不在飞行即为待命
             if (aircraft.isFlying == false) {
                 currentTaskStatus = 0
+                logDiagTaskStatus()
                 return
             }
             
             // 8. 状态 -1 (未知) - 其他情况
             currentTaskStatus = -1
+            logDiagTaskStatus()
         }
     }
 
     // ==================== 上报数据格式更新（严格按照示例顺序）====================
     private fun updateFlightReportData() {
         val aircraft = deviceData.aircraft
+        val prevWpIdxForDiag = flightReportData.currentWaypointIndex
         
         // 先更新任务状态
         updateCurrentTaskStatus()
@@ -502,7 +569,17 @@ class DeviceDataManager {
             windDirection = aircraft.windDirection?.value()
             
             // 17. currentWaypointIndex（由监听器实时更新）
-            currentWaypointIndex = aircraft.currentWaypointIndex
+            val reportWpBefore = currentWaypointIndex
+            val aircraftWp = aircraft.currentWaypointIndex
+            currentWaypointIndex = aircraftWp
+            if (reportWpBefore != aircraftWp) {
+                FileLogger.w(
+                    TAG,
+                    "[DIAG-WP-REPORT] 轮询写入上报 wpIdx: report $reportWpBefore -> aircraft $aircraftWp" +
+                        " | isFlying=${aircraft.isFlying} | mission=${currentWaypointMissionExecuteState?.name}" +
+                        " | taskStatus=${this@DeviceDataManager.currentTaskStatus}"
+                )
+            }
             
             // 18. flightMode
             flightMode = aircraft.flightMode?.value()
@@ -537,6 +614,15 @@ class DeviceDataManager {
 
             // 23. cameraMode - 相机拍摄模式
             cameraMode = aircraft.cameraShootingModeName
+
+            if (prevWpIdxForDiag != null && aircraft.currentWaypointIndex == null) {
+                FileLogger.w(
+                    TAG,
+                    "[DIAG-LOST] !!! currentWaypointIndex 从 $prevWpIdxForDiag 变为 null!" +
+                        " | isFlying=${aircraft.isFlying}" +
+                        " | missionState=${currentWaypointMissionExecuteState?.name}"
+                )
+            }
         }
     }
 
@@ -560,6 +646,21 @@ class DeviceDataManager {
      */
     fun resetMissionState() {
         synchronized(lock) {
+            val stack = Thread.currentThread().stackTrace
+            val caller = stack.drop(2).take(3).joinToString(" <- ") { el ->
+                "${el.className.substringAfterLast('.')}.${el.methodName}:${el.lineNumber}"
+            }
+            FileLogger.w(
+                TAG,
+                "[DIAG-RESET] >>> resetMissionState 被调用!" +
+                    " | wpIdx=${deviceData.aircraft.currentWaypointIndex}" +
+                    " | reportWpIdx=${flightReportData.currentWaypointIndex}" +
+                    " | isFlying=${deviceData.aircraft.isFlying}" +
+                    " | missionState=${currentWaypointMissionExecuteState?.name}" +
+                    " | taskStatus=$currentTaskStatus" +
+                    " | isMissionInterrupted=$isMissionInterrupted" +
+                    " | caller=$caller"
+            )
             deviceData.aircraft.currentWaypointIndex = null
             flightReportData.currentWaypointIndex = null
             currentWaypointMissionExecuteState = null
@@ -568,6 +669,7 @@ class DeviceDataManager {
             wasFlying = false
             lastLandingTime = 0
             isLowBatteryRTH = false
+            FileLogger.i(TAG, "[DIAG-WP] resetMissionState 完成: 航点与任务字段已清空")
             FileLogger.i(TAG, "任务状态已重置: currentWaypointIndex=null, currentTaskStatus=0, isMissionInterrupted=false")
         }
     }
@@ -576,6 +678,12 @@ class DeviceDataManager {
      * 清空所有数据
      */
     fun clearAllData() {
+        val wp = synchronized(lock) {
+            deviceData.aircraft.currentWaypointIndex to flightReportData.currentWaypointIndex
+        }
+        if (wp.first != null || wp.second != null) {
+            FileLogger.w(TAG, "[DIAG-WP-CLEAR] clearAllData | 清前 aircraftWp=${wp.first} reportWp=${wp.second}")
+        }
         deviceData = DeviceData()
         flightReportData = FlightReportData()
     }
@@ -584,6 +692,12 @@ class DeviceDataManager {
      * 销毁资源，移除所有监听器
      */
     fun destroy() {
+        synchronized(lock) {
+            FileLogger.w(
+                TAG,
+                "[DIAG-WP] destroy 开始 | wpIdx=${deviceData.aircraft.currentWaypointIndex} reportWp=${flightReportData.currentWaypointIndex} mission=${currentWaypointMissionExecuteState?.name}"
+            )
+        }
         removeWaylineListener()
         removeWaypointMissionExecuteStateListener()
         removeStatusListeners()

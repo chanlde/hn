@@ -97,6 +97,12 @@
                         android:visibility="invisible"
                         app:layout_constraintWidth_percent="0.95"
                         app:uxsdk_titleBarBackgroundColor="@color/uxsdk_black" />
+
+                    <dji.v5.ux.training.simulatorcontrol.SimulatorControlWidget
+                        android:id="@+id/widget_simulator_control"
+                        android:layout_width="330dp"
+                        android:layout_height="0dp"
+                        android:visibility="invisible" />
                 </dji.v5.ux.cameracore.widget.fpvinteraction.FPVInteractionWidget>
 
             </dji.v5.ux.core.widget.fpv.FPVWidget>
@@ -212,21 +218,6 @@
             app:layout_constraintVertical_bias="0.45" />
 
 
-
-        <Button
-            android:id="@+id/btn_swingParms_setting"
-            android:layout_width="30dp"
-            android:layout_height="30dp"
-            android:layout_marginEnd="20dp"
-            android:background="@drawable/gun"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintDimensionRatio="@string/uxsdk_widget_default_ratio"
-            app:layout_constraintHeight_percent="0.1"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintVertical_bias="0.8"
-            tools:ignore="SpeakableTextPresentCheck,TouchTargetSizeCheck" />
-
         <dji.v5.ux.visualcamera.zoom.FocalZoomWidget
             android:id="@+id/widget_focal_zoom"
             android:layout_width="wrap_content"
@@ -240,11 +231,13 @@
 
         <dji.v5.ux.flightdatawidget.FlightDataWidget
             android:id="@+id/flightdata_tip"
-            android:layout_width="120dp"
-            android:layout_height="100dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="120dp"
+            android:maxWidth="200dp"
             android:layout_marginStart="10dp"
-            android:layout_marginBottom="-100dp"
-            app:layout_constraintBottom_toBottomOf="@+id/panel_top_bar"
+            android:layout_marginTop="4dp"
+            app:layout_constraintTop_toBottomOf="@+id/panel_top_bar"
             app:layout_constraintStart_toStartOf="parent" />
 
         <dji.v5.ux.flight.takeoff.TakeOffWidget
@@ -289,17 +282,19 @@
             app:layout_constraintVertical_bias="0"
             tools:ignore="TouchTargetSizeCheck,SpeakableTextPresentCheck" />
 
-        <dji.v5.ux.training.simulatorcontrol.SimulatorControlWidget
-            android:id="@+id/widget_simulator_control"
-            android:layout_width="330dp"
-            android:layout_height="0dp"
-            android:visibility="invisible"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintLeft_toLeftOf="parent"
-            app:layout_constraintRight_toRightOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/panel_top_bar" />
-
-
+        <Button
+            android:id="@+id/btn_stream_settings"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginEnd="10dp"
+            android:layout_marginTop="0dp"
+            android:background="@drawable/uxsdk_background_black_rectangle"
+            android:text="C"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            app:layout_constraintEnd_toStartOf="@+id/widget_camera_controls"
+            app:layout_constraintTop_toTopOf="@+id/widget_camera_controls" />
 
 
     </androidx.constraintlayout.widget.ConstraintLayout>

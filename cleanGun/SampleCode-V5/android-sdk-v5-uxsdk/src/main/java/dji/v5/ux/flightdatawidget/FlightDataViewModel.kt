@@ -10,8 +10,12 @@ import dji.sdk.keyvalue.key.FlightControllerKey
 import dji.sdk.keyvalue.key.KeyTools
 import dji.sdk.keyvalue.value.common.LocationCoordinate3D
 import dji.sdk.keyvalue.value.common.Velocity3D
+import dji.v5.common.error.IDJIError
 import dji.v5.common.utils.RxUtil
 import dji.v5.manager.KeyManager
+import dji.v5.manager.aircraft.waypoint3.WaylineExecutingInfoListener
+import dji.v5.manager.aircraft.waypoint3.WaypointMissionManager
+import dji.v5.manager.aircraft.waypoint3.model.WaylineExecutingInfo
 import dji.v5.ux.core.base.DJISDKModel
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
 import io.reactivex.rxjava3.disposables.CompositeDisposable
@@ -56,8 +60,6 @@ class FlightDataViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-
-
     // data class VelocityData(val x: Double, val y: Double, val z: Double)
     // data class BatteryData(val percentage: Int, val voltage: Double)
 
@@ -70,6 +72,19 @@ class FlightDataViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _speed = MutableLiveData<Double>()
     val speed: LiveData<Double> = _speed
+
+    /** 海拔高度（米，AMSL ≈ 相对起飞点高度 + 起飞点海拔），与 AltitudeWidgetModel 一致 */
+    private val _altitudeAmslMeters = MutableLiveData<Double?>()
+    val altitudeAmslMeters: LiveData<Double?> = _altitudeAmslMeters
+
+    /** 当前航点索引（航线执行中由 WaylineExecutingInfo 回调，与 sample DeviceDataManager 同源） */
+    private val _currentWaypointIndex = MutableLiveData<Int?>()
+    val currentWaypointIndex: LiveData<Int?> = _currentWaypointIndex
+
+    private var waylineExecutingInfoListener: WaylineExecutingInfoListener? = null
+
+    private var latestRelativeAltitudeMeters: Double? = null
+    private var latestTakeoffLocationAltitudeMeters: Double? = null
 
     // ==================== RxJava 订阅管理 ====================
 
@@ -88,9 +103,48 @@ class FlightDataViewModel(application: Application) : AndroidViewModel(applicati
     init {
         FileLogger.i(TAG, "FlightDataViewModel 初始化")
         setupLocationListener()
+        setupAltitudeAmslListener()
+        setupWaylineExecutingInfoListener()
         // 启动模拟数据检查
         startMockDataCheck()
         setVelocity3DListener()
+    }
+
+    private fun setupWaylineExecutingInfoListener() {
+        try {
+            waylineExecutingInfoListener = object : WaylineExecutingInfoListener {
+                override fun onWaylineExecutingInfoUpdate(info: WaylineExecutingInfo) {
+                    _currentWaypointIndex.postValue(info.currentWaypointIndex)
+                }
+
+                override fun onWaylineExecutingInterruptReasonUpdate(error: IDJIError) {
+                    try {
+                        FileLogger.w(
+                            TAG,
+                            "航线执行中断(FlightData): ${error.description()} code=${error.errorCode()}"
+                        )
+                    } catch (_: Exception) {
+                        // ignore
+                    }
+                }
+            }
+            waylineExecutingInfoListener?.let {
+                WaypointMissionManager.getInstance().addWaylineExecutingInfoListener(it)
+            }
+        } catch (e: Exception) {
+            FileLogger.e(TAG, "注册 WaylineExecutingInfoListener 失败: ${e.message}", e)
+        }
+    }
+
+    private fun removeWaylineExecutingInfoListener() {
+        waylineExecutingInfoListener?.let {
+            try {
+                WaypointMissionManager.getInstance().removeWaylineExecutingInfoListener(it)
+            } catch (e: Exception) {
+                FileLogger.e(TAG, "移除 WaylineExecutingInfoListener 失败: ${e.message}", e)
+            }
+            waylineExecutingInfoListener = null
+        }
     }
 
     // ==================== 位置数据监听 ====================
@@ -118,6 +172,68 @@ class FlightDataViewModel(application: Application) : AndroidViewModel(applicati
 
             compositeDisposable.add(disposable)
         } catch (e: Exception) {
+        }
+    }
+
+    private fun setupAltitudeAmslListener() {
+        try {
+            val relativeKey = KeyTools.createKey(FlightControllerKey.KeyAltitude)
+            val takeoffKey = KeyTools.createKey(FlightControllerKey.KeyTakeoffLocationAltitude)
+
+            compositeDisposable.add(
+                RxUtil.addListener(relativeKey, this)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(
+                        { v: Double? ->
+                            latestRelativeAltitudeMeters = v
+                            postAltitudeAmslMeters()
+                        },
+                        { error ->
+                            FileLogger.e(TAG, "相对高度监听失败: ${error.message}", error)
+                        }
+                    )
+            )
+            compositeDisposable.add(
+                RxUtil.addListener(takeoffKey, this)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(
+                        { v: Double? ->
+                            latestTakeoffLocationAltitudeMeters = v
+                            postAltitudeAmslMeters()
+                        },
+                        { error ->
+                            FileLogger.e(TAG, "起飞点海拔监听失败: ${error.message}", error)
+                        }
+                    )
+            )
+            refreshAltitudeAmslFromKeys()
+        } catch (e: Exception) {
+            FileLogger.e(TAG, "设置海拔监听失败: ${e.message}", e)
+        }
+    }
+
+    private fun postAltitudeAmslMeters() {
+        val r = latestRelativeAltitudeMeters
+        val t = latestTakeoffLocationAltitudeMeters
+        val amsl = if (r != null && t != null && !r.isNaN() && !t.isNaN()) {
+            r + t
+        } else {
+            null
+        }
+        _altitudeAmslMeters.postValue(amsl)
+    }
+
+    private fun refreshAltitudeAmslFromKeys() {
+        try {
+            val relativeKey = KeyTools.createKey(FlightControllerKey.KeyAltitude)
+            val takeoffKey = KeyTools.createKey(FlightControllerKey.KeyTakeoffLocationAltitude)
+            latestRelativeAltitudeMeters = KeyManager.getInstance().getValue(relativeKey)
+            latestTakeoffLocationAltitudeMeters = KeyManager.getInstance().getValue(takeoffKey)
+            postAltitudeAmslMeters()
+        } catch (e: Exception) {
+            FileLogger.e(TAG, "同步海拔 Key 失败: ${e.message}", e)
         }
     }
 
@@ -216,8 +332,10 @@ class FlightDataViewModel(application: Application) : AndroidViewModel(applicati
                     isValid = isValid
                 )
                 _location.postValue(locationData)
+                refreshAltitudeAmslFromKeys()
                 locationData
             } else {
+                refreshAltitudeAmslFromKeys()
                 null
             }
         } catch (e: Exception) {
@@ -254,6 +372,7 @@ class FlightDataViewModel(application: Application) : AndroidViewModel(applicati
         )
         
         _location.postValue(mockLocationData)
+        _altitudeAmslMeters.postValue(mockLocationData.altitude)
 
         // 启动模拟数据更新（每秒更新一次，让数据看起来更动态）
         startMockDataUpdates(mockLocationData)
@@ -291,6 +410,7 @@ class FlightDataViewModel(application: Application) : AndroidViewModel(applicati
                 )
                 
                 _location.postValue(mockData)
+                _altitudeAmslMeters.postValue(mockData.altitude)
             }
         }
     }
@@ -320,6 +440,7 @@ class FlightDataViewModel(application: Application) : AndroidViewModel(applicati
     
     override fun onCleared() {
         super.onCleared()
+        removeWaylineExecutingInfoListener()
         compositeDisposable.clear()
         // 移除监听器
         DJISDKModel.getInstance().removeListener(this)

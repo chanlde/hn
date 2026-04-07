@@ -94,6 +94,7 @@ import dji.v5.ux.visualcamera.CameraVisiblePanelWidget;
 import dji.v5.ux.visualcamera.zoom.FocalZoomWidget;
 import dji.v5.ux.flightdatawidget.FlightDataWidget;
 import dji.v5.ux.flightdatawidget.FlightDataViewModel;
+import dji.v5.ux.cameracore.widget.cameracontrols.streamsettings.CameraStreamSettingsDialog;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 
@@ -126,6 +127,9 @@ public class DefaultLayoutActivity extends AppCompatActivity {
     protected FlightDataWidget flightDataWidget;
     private FlightDataViewModel flightDataViewModel;
 
+
+    private Button btnStreamSettings;
+    private CameraStreamSettingsDialog streamSettingsDialog;
 
     protected ConstraintLayout fpvParentView;
     private DrawerLayout mDrawerLayout;
@@ -184,6 +188,7 @@ public class DefaultLayoutActivity extends AppCompatActivity {
         gimbalFineTuneWidget = findViewById(R.id.setting_menu_gimbal_fine_tune);
         mapWidget = findViewById(R.id.widget_map);
         flightDataWidget = findViewById(R.id.flightdata_tip);
+        btnStreamSettings = findViewById(R.id.btn_stream_settings);
 
         initClickListener();
         
@@ -256,10 +261,21 @@ public class DefaultLayoutActivity extends AppCompatActivity {
             if (gimbalFineTuneWidget != null) {
                 gimbalFineTuneWidget.setVisibility(View.GONE);
             }
-
         });
 
-
+        if (btnStreamSettings != null) {
+            btnStreamSettings.setOnClickListener(v -> {
+                if (streamSettingsDialog == null) {
+                    streamSettingsDialog = new CameraStreamSettingsDialog(
+                            DefaultLayoutActivity.this,
+                            lastDevicePosition != ComponentIndexType.UNKNOWN
+                                    ? lastDevicePosition
+                                    : ComponentIndexType.LEFT_OR_MAIN
+                    );
+                }
+                streamSettingsDialog.show(btnStreamSettings);
+            });
+        }
     }
 
     private void toggleRightDrawer() {
@@ -305,6 +321,11 @@ public class DefaultLayoutActivity extends AppCompatActivity {
         if (flightDataWidget != null) {
             flightDataWidget.stop();
             flightDataWidget = null;
+        }
+
+        if (streamSettingsDialog != null) {
+            streamSettingsDialog.dismiss();
+            streamSettingsDialog = null;
         }
 
         primaryFpvWidget = null;

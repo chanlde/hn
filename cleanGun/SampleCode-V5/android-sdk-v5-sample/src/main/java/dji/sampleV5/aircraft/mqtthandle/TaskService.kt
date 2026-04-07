@@ -2,6 +2,8 @@ package dji.sampleV5.aircraft.mqtthandle
 
 import android.content.Context
 import android.util.Log
+import dji.sampleV5.aircraft.data.getValueForKey
+import dji.sdk.keyvalue.key.FlightControllerKey
 import dji.v5.common.callback.CommonCallbacks
 import dji.v5.common.error.IDJIError
 import dji.v5.manager.aircraft.waypoint3.WaypointMissionManager
@@ -9,6 +11,10 @@ import dji.v5.utils.common.FileUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.io.ByteArrayOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import kotlin.math.min
 
 /**
  * 航线任务服务
@@ -18,6 +24,79 @@ class TaskService(private val context: Context) {
     companion object {
         private const val TAG = "TaskService"
         private const val WAYPOINT_FILE_TAG = ".kmz"
+        private const val KMZ_TEXT_ENTRY_MAX_BYTES = 512_000
+    }
+
+    /**
+     * 打印飞机当前高度与 KMZ 内可能的高度字段，用于排查「航线高度过高」等启动失败。
+     */
+    private fun logAltitudeDiagnostics(reason: String, missionPath: String) {
+        val relAlt = getValueForKey(FlightControllerKey.KeyAltitude)
+        val takeoffLocAlt = getValueForKey(FlightControllerKey.KeyTakeoffLocationAltitude)
+        val loc3d = getValueForKey(FlightControllerKey.KeyAircraftLocation3D)
+        val isFlying = getValueForKey(FlightControllerKey.KeyIsFlying)
+        val ultrasonic = getValueForKey(FlightControllerKey.KeyUltrasonicHeight)
+        val amslApprox = if (relAlt != null && takeoffLocAlt != null) relAlt + takeoffLocAlt else null
+        val kmzHint = tryExtractKmzAltitudeHints(missionPath)
+        Log.w(
+            TAG,
+            "[$reason] 高度诊断 | 飞机 isFlying=$isFlying | KeyAltitude相对起飞=${relAlt}m " +
+                "takeoffLocationAltitude=${takeoffLocAlt}m AMSL约=${amslApprox}m " +
+                "| Location3D.altitude(常为椭球高)=${loc3d?.altitude}m ultrasonic=${ultrasonic}m " +
+                "| KMZ线索: $kmzHint"
+        )
+    }
+
+    /**
+     * 从 KMZ(zip) 内 kml/xml 中粗提取与高度相关的数值（仅供参考，与 DJI 校验逻辑可能不完全一致）。
+     */
+    private fun readZipEntryTextCapped(zip: ZipFile, entry: ZipEntry, maxBytes: Int): String {
+        if (entry.size > 0 && entry.size > maxBytes) return ""
+        return zip.getInputStream(entry).use { ins ->
+            val out = ByteArrayOutputStream(min(8192, maxBytes))
+            val chunk = ByteArray(8192)
+            var total = 0
+            while (total < maxBytes) {
+                val toRead = min(chunk.size, maxBytes - total)
+                val n = ins.read(chunk, 0, toRead)
+                if (n <= 0) break
+                out.write(chunk, 0, n)
+                total += n
+            }
+            out.toString(Charsets.UTF_8.name())
+        }
+    }
+
+    private fun tryExtractKmzAltitudeHints(kmzPath: String): String {
+        return try {
+            val found = mutableListOf<String>()
+            ZipFile(kmzPath).use { zip ->
+                val entries = zip.entries().toList()
+                for (e in entries) {
+                    if (e.isDirectory) continue
+                    val name = e.name.lowercase()
+                    if (!name.endsWith(".kml") && !name.endsWith(".xml")) continue
+                    val text = readZipEntryTextCapped(zip, e, KMZ_TEXT_ENTRY_MAX_BYTES)
+                    if (text.isEmpty()) continue
+                    val patterns = listOf(
+                        Regex("executeHeight[^>]*>([0-9]+\\.?[0-9]*)", RegexOption.IGNORE_CASE),
+                        Regex("heightMode[^>]*>([^<]+)<", RegexOption.IGNORE_CASE),
+                        Regex("<wpml:height>([0-9]+\\.?[0-9]*)</wpml:height>", RegexOption.IGNORE_CASE),
+                        Regex("<height>([0-9]+\\.?[0-9]*)</height>", RegexOption.IGNORE_CASE),
+                        Regex("ellipsoidHeight[^>]*>([0-9]+\\.?[0-9]*)", RegexOption.IGNORE_CASE)
+                    )
+                    for (p in patterns) {
+                        p.findAll(text).take(3).forEach { m ->
+                            found.add("${e.name.takeLast(40)}:${m.groupValues.drop(1).joinToString()}")
+                        }
+                    }
+                }
+            }
+            if (found.isEmpty()) "未在KMZ的kml/xml中匹配到常见高度标签"
+            else found.distinct().take(12).joinToString(" | ")
+        } catch (e: Exception) {
+            "读取KMZ异常: ${e.message}"
+        }
     }
 
     /**
@@ -115,6 +194,9 @@ class TaskService(private val context: Context) {
         // 假设 KMZ 只包含一条航线，使用默认 ID [0]
         val waylineIDs: List<Int> = listOf(0)
 
+        logAltitudeDiagnostics("启动航线任务前", missionPath)
+        Log.d(TAG, "调用 startMission missionId=$missionId waylineIDs=$waylineIDs path=$missionPath")
+
         WaypointMissionManager.getInstance().startMission(
             missionId,
             waylineIDs,
@@ -125,7 +207,16 @@ class TaskService(private val context: Context) {
                 }
 
                 override fun onFailure(error: IDJIError) {
-                    Log.e(TAG, "航线任务启动失败: ${error.description()}")
+                    val code = try {
+                        error.errorCode()
+                    } catch (_: Exception) {
+                        null
+                    }
+                    logAltitudeDiagnostics("航线任务启动失败(对照用)", missionPath)
+                    Log.e(
+                        TAG,
+                        "航线任务启动失败: ${error.description()} code=$code | 请对照上方 [高度诊断] 中「相对起飞高度」与 KMZ 航线高度(海拔/相对)是否一致"
+                    )
                     onFailure("启动失败: ${error.description()}")
                 }
             }
