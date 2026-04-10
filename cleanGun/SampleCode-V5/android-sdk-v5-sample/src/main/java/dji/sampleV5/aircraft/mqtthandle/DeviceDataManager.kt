@@ -58,6 +58,8 @@ class DeviceDataManager {
     private var lowBatteryRTHListener: CommonCallbacks.KeyListener<LowBatteryRTHInfo>? = null
     private var flightModeListener: CommonCallbacks.KeyListener<FlightMode>? = null
     private var isFlyingListener: CommonCallbacks.KeyListener<Boolean>? = null
+    /** 飞控连接：用于重连后重新注册 WaypointMissionManager 监听器 */
+    private var connectionListener: CommonCallbacks.KeyListener<Boolean>? = null
     private var cameraShootingModeListener: CommonCallbacks.KeyListener<CameraMode>? = null
     private val lock = Any()  // ← 对象锁
     val locationService = DJIApplication.getInstance()?.getLocationService()
@@ -208,6 +210,17 @@ class DeviceDataManager {
             FileLogger.w(TAG, "[DIAG-WP] WaypointMissionExecuteStateListener 已移除 | 移除前 wpIdx=$wp missionState=$ms")
         }
     }
+
+    /**
+     * 飞控会话重建后（关机再开等），WaypointMissionManager 上已注册的监听器可能失效，需移除后重新注册。
+     */
+    private fun reRegisterWaypointListeners() {
+        FileLogger.i(TAG, "[DIAG-WP] 飞控重连：重新注册 WaylineExecutingInfo / WaypointMissionExecuteState 监听器")
+        removeWaylineListener()
+        removeWaypointMissionExecuteStateListener()
+        setupWaylineListener()
+        setupWaypointMissionExecuteStateListener()
+    }
     
     /**
      * 设置状态监听器（低电量返航、飞行模式、飞行状态）
@@ -275,6 +288,24 @@ class DeviceDataManager {
             }
         }
         KeyManager.getInstance().listen(isFlyingKey, this, isFlyingListener!!)
+
+        // 飞控连接：断连再连后重新挂航线监听器，否则 currentWaypointIndex 可能一直不更新
+        val fcConnectionKey = KeyTools.createKey(FlightControllerKey.KeyConnection)
+        connectionListener = object : CommonCallbacks.KeyListener<Boolean> {
+            override fun onValueChange(oldValue: Boolean?, newValue: Boolean?) {
+                val wasConnected = oldValue == true
+                val connected = newValue == true
+                if (!wasConnected && connected) {
+                    FileLogger.i(
+                        TAG,
+                        "[DIAG-WP] 飞控已连接 old=$oldValue new=$newValue，重置任务状态并重新注册航线监听器"
+                    )
+                    resetMissionState()
+                    reRegisterWaypointListeners()
+                }
+            }
+        }
+        KeyManager.getInstance().listen(fcConnectionKey, this, connectionListener!!)
         
         FileLogger.i(TAG, "状态监听器已注册")
     }
@@ -325,6 +356,12 @@ class DeviceDataManager {
         isFlyingListener?.let {
             KeyManager.getInstance().cancelListen(isFlyingKey, it)
             isFlyingListener = null
+        }
+
+        val fcConnectionKey = KeyTools.createKey(FlightControllerKey.KeyConnection)
+        connectionListener?.let {
+            KeyManager.getInstance().cancelListen(fcConnectionKey, it)
+            connectionListener = null
         }
         
         FileLogger.i(TAG, "状态监听器已移除")

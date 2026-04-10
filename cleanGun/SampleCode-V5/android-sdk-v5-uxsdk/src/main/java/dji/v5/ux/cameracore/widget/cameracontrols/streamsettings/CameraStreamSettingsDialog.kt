@@ -38,6 +38,8 @@ class CameraStreamSettingsDialog(
     private val mainHandler = Handler(Looper.getMainLooper())
     private val checkBoxMap = LinkedHashMap<CameraVideoStreamSourceType, CheckBox>()
     private var cbCurrentScreen: CheckBox? = null
+    /** 回填 CheckBox 时禁止触发 applySettings，避免打开弹窗即多次写入飞机 */
+    private var isLoading = false
     private val tvStatus: TextView
     private val llCheckboxes: LinearLayout
 
@@ -150,30 +152,41 @@ class CameraStreamSettingsDialog(
             object : CommonCallbacks.CompletionCallbackWithParam<CameraStreamSettingsInfo> {
                 override fun onSuccess(info: CameraStreamSettingsInfo?) {
                     mainHandler.post {
-                        if (info == null) {
-                            for (cb in checkBoxMap.values) cb.isChecked = true
-                            cbCurrentScreen?.isChecked = true
-                            return@post
-                        }
-                        cbCurrentScreen?.isChecked = info.getRequestCurrentScreen()
-                        val selectedSources = info.getCameraVideoStreamSources() ?: emptyList()
-                        for ((source, cb) in checkBoxMap.entries) {
-                            cb.isChecked = selectedSources.contains(source)
+                        isLoading = true
+                        try {
+                            if (info == null) {
+                                for (cb in checkBoxMap.values) cb.isChecked = true
+                                cbCurrentScreen?.isChecked = true
+                            } else {
+                                cbCurrentScreen?.isChecked = info.getRequestCurrentScreen()
+                                val selectedSources = info.getCameraVideoStreamSources() ?: emptyList()
+                                for ((source, cb) in checkBoxMap.entries) {
+                                    cb.isChecked = selectedSources.contains(source)
+                                }
+                            }
+                        } finally {
+                            isLoading = false
                         }
                     }
                 }
 
                 override fun onFailure(error: IDJIError) {
                     mainHandler.post {
-                        for (cb in checkBoxMap.values) cb.isChecked = true
-                        cbCurrentScreen?.isChecked = true
-                        showStatus("读取当前设置失败: ${error.description()}")
+                        isLoading = true
+                        try {
+                            for (cb in checkBoxMap.values) cb.isChecked = true
+                            cbCurrentScreen?.isChecked = true
+                            showStatus("读取当前设置失败: ${error.description()}")
+                        } finally {
+                            isLoading = false
+                        }
                     }
                 }
             })
     }
 
     private fun applySettings() {
+        if (isLoading) return
         val selectedSources = checkBoxMap.entries
             .filter { entry -> entry.value.isChecked }
             .map { entry -> entry.key }

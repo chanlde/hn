@@ -12,8 +12,10 @@ import com.dji.util.FileLogger
 
 import dji.sampleV5.aircraft.util.sendResponse
 import dji.sdk.keyvalue.key.CameraKey
+import dji.sdk.keyvalue.key.DJIKey
 import dji.sdk.keyvalue.key.KeyTools
 import dji.sdk.keyvalue.value.camera.CameraMode
+import dji.sdk.keyvalue.value.camera.GeneratedMediaFileInfo
 import dji.sdk.keyvalue.value.camera.MediaFileType
 import dji.sdk.keyvalue.value.camera.CameraVideoStreamSourceType
 import dji.v5.common.callback.CommonCallbacks
@@ -73,6 +75,13 @@ class CameraService(
     private val mainHandler = Handler(Looper.getMainLooper())
     private var pullListAfterPhotoRunnable: Runnable? = null
     private var pullListAfterVideoRunnable: Runnable? = null
+    private var newMediaFilePullRunnable: Runnable? = null
+
+    /** KeyNewlyGeneratedMediaFile 触发 pull 的实际执行时间，用于 1.5s 去抖 */
+    private var lastPullFromNewMediaKeyMs: Long = 0L
+
+    private var newlyGeneratedMediaFileKey: DJIKey<GeneratedMediaFileInfo>? = null
+    private var newGeneratedMediaKeyListener: CommonCallbacks.KeyListener<GeneratedMediaFileInfo>? = null
 
     @Volatile
     var currentMissionFolderPath: String? = null
@@ -155,6 +164,7 @@ class CameraService(
             setupMediaDataSource()
             // 设置媒体文件监听器
             setupMediaFileListener()
+            setupNewGeneratedMediaFileListener()
 
             isInitialized = true
             FileLogger.i(TAG, "CameraService 初始化完成")
@@ -365,6 +375,11 @@ class CameraService(
             TAG,
             "媒体数据源已设置 storage=${dataSource.storageLocation} index=${dataSource.componentIndexType}"
         )
+
+        // 新媒体 Key 与当前相机索引绑定，切换数据源后需重新注册
+        if (isInitialized) {
+            setupNewGeneratedMediaFileListener()
+        }
     }
 
     /**
@@ -420,6 +435,64 @@ class CameraService(
     }
 
     /**
+     * 监听相机新生成媒体文件（比仅依赖 MediaFileListState 更及时，用于补偿 MSDK 偶发不回调）
+     */
+    private fun setupNewGeneratedMediaFileListener() {
+        removeNewGeneratedMediaFileListener()
+        val key = try {
+            KeyTools.createKey(CameraKey.KeyNewlyGeneratedMediaFile, activeCameraIndex)
+        } catch (e: Exception) {
+            FileLogger.w(TAG, "创建 KeyNewlyGeneratedMediaFile 失败: ${e.message}")
+            return
+        }
+        newlyGeneratedMediaFileKey = key
+        newGeneratedMediaKeyListener = object : CommonCallbacks.KeyListener<GeneratedMediaFileInfo> {
+            override fun onValueChange(oldValue: GeneratedMediaFileInfo?, newValue: GeneratedMediaFileInfo?) {
+                if (newValue == null) return
+                FileLogger.i(TAG, "KeyNewlyGeneratedMediaFile 回调 camera=$activeCameraIndex info=$newValue")
+                newMediaFilePullRunnable?.let { mainHandler.removeCallbacks(it) }
+                newMediaFilePullRunnable = Runnable {
+                    val now = System.currentTimeMillis()
+                    if (now - lastPullFromNewMediaKeyMs < 1500L) {
+                        FileLogger.throttledD(
+                            TAG,
+                            "newMediaPullDebounce",
+                            "KeyNewlyGeneratedMediaFile 触发 pull 去抖跳过 (<1.5s)",
+                            2000L
+                        )
+                        return@Runnable
+                    }
+                    lastPullFromNewMediaKeyMs = now
+                    pullMediaFileList()
+                }
+                mainHandler.postDelayed(newMediaFilePullRunnable!!, 1000L)
+            }
+        }
+        try {
+            KeyManager.getInstance().listen(key, this, newGeneratedMediaKeyListener!!)
+            FileLogger.i(TAG, "KeyNewlyGeneratedMediaFile 监听已注册 camera=$activeCameraIndex")
+        } catch (e: Exception) {
+            FileLogger.e(TAG, "注册 KeyNewlyGeneratedMediaFile 失败: ${e.message}", e)
+            newlyGeneratedMediaFileKey = null
+            newGeneratedMediaKeyListener = null
+        }
+    }
+
+    private fun removeNewGeneratedMediaFileListener() {
+        val key = newlyGeneratedMediaFileKey
+        val listener = newGeneratedMediaKeyListener
+        if (key != null && listener != null) {
+            try {
+                KeyManager.getInstance().cancelListen(key, listener)
+            } catch (e: Exception) {
+                FileLogger.w(TAG, "移除 KeyNewlyGeneratedMediaFile 监听异常: ${e.message}")
+            }
+        }
+        newlyGeneratedMediaFileKey = null
+        newGeneratedMediaKeyListener = null
+    }
+
+    /**
      * 标记所有现有文件为已处理
      * 在初始化时调用，避免下载相机中的旧照片/视频
      */
@@ -458,9 +531,9 @@ class CameraService(
     }
 
     /**
-     * 拉取媒体文件列表
+     * 拉取媒体文件列表（可从任务结束等外部场景调用，触发列表刷新后由 [MediaFileListStateListener] 处理新文件）
      */
-    private fun pullMediaFileList() {
+    fun pullMediaFileList() {
         val stateHint = try {
             mediaManager.getMediaFileListState().toString()
         } catch (e: Exception) {
@@ -1040,8 +1113,12 @@ class CameraService(
     fun destroy() {
         pullListAfterPhotoRunnable?.let { mainHandler.removeCallbacks(it) }
         pullListAfterVideoRunnable?.let { mainHandler.removeCallbacks(it) }
+        newMediaFilePullRunnable?.let { mainHandler.removeCallbacks(it) }
         pullListAfterPhotoRunnable = null
         pullListAfterVideoRunnable = null
+        newMediaFilePullRunnable = null
+
+        removeNewGeneratedMediaFileListener()
 
         fileUploader.cancelPendingUploads()
 
