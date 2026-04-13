@@ -10,6 +10,7 @@ import dji.sdk.keyvalue.key.FlightControllerKey
 import dji.sdk.keyvalue.key.KeyTools
 import dji.sdk.keyvalue.value.common.LocationCoordinate3D
 import dji.sdk.keyvalue.value.common.Velocity3D
+import dji.v5.common.callback.CommonCallbacks
 import dji.v5.common.error.IDJIError
 import dji.v5.common.utils.RxUtil
 import dji.v5.manager.KeyManager
@@ -83,6 +84,9 @@ class FlightDataViewModel(application: Application) : AndroidViewModel(applicati
 
     private var waylineExecutingInfoListener: WaylineExecutingInfoListener? = null
 
+    /** 与 sample WaypointMissionStateManager 一致：飞控会话重建后 Wayline 监听需重挂，否则 UI 航点不更新而 MQTT 仍正常 */
+    private var fcConnectionListener: CommonCallbacks.KeyListener<Boolean>? = null
+
     private var latestRelativeAltitudeMeters: Double? = null
     private var latestTakeoffLocationAltitudeMeters: Double? = null
 
@@ -105,6 +109,7 @@ class FlightDataViewModel(application: Application) : AndroidViewModel(applicati
         setupLocationListener()
         setupAltitudeAmslListener()
         setupWaylineExecutingInfoListener()
+        setupFlightControllerConnectionListener()
         // 启动模拟数据检查
         startMockDataCheck()
         setVelocity3DListener()
@@ -144,6 +149,43 @@ class FlightDataViewModel(application: Application) : AndroidViewModel(applicati
                 FileLogger.e(TAG, "移除 WaylineExecutingInfoListener 失败: ${e.message}", e)
             }
             waylineExecutingInfoListener = null
+        }
+    }
+
+    private fun reRegisterWaylineExecutingInfoListener() {
+        FileLogger.i(TAG, "[FlightData] 飞控重连：重新注册 WaylineExecutingInfoListener")
+        removeWaylineExecutingInfoListener()
+        setupWaylineExecutingInfoListener()
+    }
+
+    private fun setupFlightControllerConnectionListener() {
+        removeFlightControllerConnectionListener()
+        val key = KeyTools.createKey(FlightControllerKey.KeyConnection)
+        fcConnectionListener = object : CommonCallbacks.KeyListener<Boolean> {
+            override fun onValueChange(oldValue: Boolean?, newValue: Boolean?) {
+                if (oldValue != true && newValue == true) {
+                    FileLogger.i(
+                        TAG,
+                        "[FlightData] KeyConnection 已连接 old=$oldValue new=$newValue，重挂航线索引监听"
+                    )
+                    reRegisterWaylineExecutingInfoListener()
+                }
+            }
+        }
+        fcConnectionListener?.let {
+            KeyManager.getInstance().listen(key, this, it)
+        }
+    }
+
+    private fun removeFlightControllerConnectionListener() {
+        fcConnectionListener?.let { listener ->
+            val key = KeyTools.createKey(FlightControllerKey.KeyConnection)
+            try {
+                KeyManager.getInstance().cancelListen(key, listener)
+            } catch (e: Exception) {
+                FileLogger.e(TAG, "取消 KeyConnection 监听失败: ${e.message}", e)
+            }
+            fcConnectionListener = null
         }
     }
 
@@ -440,6 +482,7 @@ class FlightDataViewModel(application: Application) : AndroidViewModel(applicati
     
     override fun onCleared() {
         super.onCleared()
+        removeFlightControllerConnectionListener()
         removeWaylineExecutingInfoListener()
         compositeDisposable.clear()
         // 移除监听器

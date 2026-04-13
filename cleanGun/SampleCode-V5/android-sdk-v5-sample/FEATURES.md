@@ -2,6 +2,8 @@
 
 基于大疆 MSDK V5 开发的自定义功能列表
 
+**当前发布版本：** V1.2.5（与 `android-sdk-v5-as/gradle.properties` 中 `APP_VERSION_NAME` 一致）
+
 ## 项目概述
 
 本项目基于 DJI Mobile SDK V5 开发，在原有 SDK 基础上扩展了以下核心功能：
@@ -65,8 +67,7 @@
 
 **相关文件：**
 - `TaskService.kt` - 航线任务服务
-- `MissionTaskManager.kt` - 任务生命周期管理器
-- `MissionFolderManager.kt` - 任务文件夹管理器
+- `MissionFolderManager.kt` - 任务文件夹管理器（CameraService 使用）
 - `FileDownloader.kt` - 文件下载工具
 
 ---
@@ -270,24 +271,16 @@ fcDeviceIdList = listOf(
 
 ---
 
-### 9. 自动任务管理
+### 9. 航线结束与媒体兜底
 
-#### 9.1 起飞自动开始任务
-
-- 监听 `KeyIsFlying` 从 false → true
-- 自动调用 `MissionTaskManager.startMission()`
-- 创建任务文件夹
-- 设置相机服务任务路径
-
-#### 9.2 降落自动结束任务
-
-- 监听 `KeyIsFlying` 从 true → false
-- 自动调用 `MissionTaskManager.endMission()`
-- 触发任务文件上传
+- 航线执行状态 **FINISHED -> READY** 时，`WaypointMissionStateManager` 清空上报字段并约 2s 后调用 `CameraService.pullMediaFileListForEndMission()`，补偿漏检新媒体
+- **不再**在任务结束后自动 `clearMissionFolderPath()`；路径保留至显式清理或下次任务 `setMissionFolderPath()` 覆盖
+- 上层仍可手动调用 `DeviceDataManager.resetMissionState()`（同样只补扫、不清路径）
 
 **相关文件：**
-- `MissionStateListener.kt` - 任务状态监听器
-- `MissionTaskManager.kt` - 任务管理器
+- `WaypointMissionStateManager.kt` - 结束判定与延迟补扫
+- `DeviceDataManager.kt` - `resetMissionState()` 手动重置
+- `CameraService.kt` - 拉列表、下载、MinIO 上传
 
 ---
 
@@ -333,8 +326,8 @@ fcDeviceIdList = listOf(
 ### 模块划分
 
 1. **核心服务层**：FlightControlService、TaskService、MissionControlService、CameraService
-2. **监听器层**：LandingConfirmationListener、MissionStateListener、FlightDataReport
-3. **管理器层**：MissionTaskManager、MissionFolderManager、DeviceDataManager
+2. **监听器层**：LandingConfirmationListener、FlightDataReport
+3. **管理器层**：MissionFolderManager、DeviceDataManager（航线结束媒体兜底）
 4. **工具层**：FileDownloader、MessageParser、LocationService
 5. **协调层**：MqttMessageHandler（消息路由中心）
 
@@ -343,6 +336,14 @@ fcDeviceIdList = listOf(
 ---
 
 ## 版本更新记录
+
+### V1.2.5 (2026-04-12)
+
+**变更：**
+- 精简 RTMP 推流（`FpvRtmpStreamer`）：移除飞控连接监听触发的 stop/start 与航线结束后的联动重启；保留会话级 start/stop，以及直播状态掉线、`onError` 时的指数退避重试。
+- 移除 `WaypointMissionStateManager` → `DeviceDataManager` → `FpvRtmpStreamer.notifyWaypointMissionEnded()` 的推流侧回调链；**飞控重连后重新注册航线监听器**仍由 `WaypointMissionStateManager` 内原有逻辑负责，不受影响。
+
+---
 
 ### v1.0.0 (2026-01-17)
 
@@ -425,6 +426,6 @@ android-sdk-v5-network/
 
 ---
 
-**最后更新日期：** 2026-01-17
+**最后更新日期：** 2026-04-12
 
 

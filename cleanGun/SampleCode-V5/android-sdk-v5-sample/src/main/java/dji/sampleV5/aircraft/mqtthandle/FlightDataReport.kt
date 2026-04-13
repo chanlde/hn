@@ -1,5 +1,6 @@
 package dji.sampleV5.aircraft.mqtthandle
 
+import android.util.Log
 import com.dji.util.FileLogger
 import com.tji.network.MqttManager
 import kotlinx.coroutines.CoroutineScope
@@ -51,6 +52,7 @@ class FlightDataReport(key: String, cameraService: CameraService? = null) {
                                     FileLogger.e("FlightDataReport", "MQTT发布失败: ${throwable.message}", throwable)
                                 }
                             )
+                            Log.d("FlightDataReport", "MQTT 周期上报正常 loop=$jsonData")
                             delay(200) // 每 200 毫秒上报一次，即每秒 5 次
                         } catch (e: Exception) {
                             FileLogger.e("FlightDataReport", "数据上报循环内异常: ${e.message}", e)

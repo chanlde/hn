@@ -383,14 +383,13 @@ class CameraService(
     }
 
     /**
-     * 尝试用 INTERNAL_STORAGE 回退（在 SDCARD 拉取失败时调用）
+     * 拉取失败时的日志占位（曾自动切 INTERNAL，会导致存储与机载卡不一致且与数据源切换竞争）。
      */
     private fun fallbackToInternalStorage() {
-        if (activeStorageLocation == CameraStorageLocation.SDCARD) {
-            FileLogger.w(TAG, "SDCARD 拉取失败，尝试切换到 INTERNAL")
-            activeStorageLocation = CameraStorageLocation.INTERNAL
-            applyMediaDataSource(activeCameraIndex, activeStorageLocation)
-        }
+        FileLogger.w(
+            TAG,
+            "媒体文件列表拉取失败 storage=$activeStorageLocation camera=$activeCameraIndex（不自动切换存储）"
+        )
     }
 
     /**
@@ -562,6 +561,96 @@ class CameraService(
     }
 
     /**
+     * 任务结束兜底拉列表：与 [pullMediaFileList] 相同拉取，并在成功后输出尚未进入 [processedFiles] 的照片/视频（漏检）数量与文件名。
+     */
+    fun pullMediaFileListForEndMission() {
+        val state = try {
+            mediaManager.getMediaFileListState()
+        } catch (e: Exception) {
+            FileLogger.w(TAG, "[END-MISSION] 无法读取媒体列表状态: ${e.message}")
+            null
+        }
+        if (state != null && state != MediaFileListState.IDLE && state != MediaFileListState.UP_TO_DATE) {
+            FileLogger.w(
+                TAG,
+                "[END-MISSION] 媒体列表状态=$state 不适合立即拉取，跳过本次（避免与数据源切换竞争）"
+            )
+            return
+        }
+        val stateHint = state?.toString() ?: "?"
+        FileLogger.i(TAG, "[END-MISSION] 拉取媒体文件列表 当前状态=$stateHint")
+
+        val param = PullMediaFileListParam.Builder()
+            .filter(MediaFileFilter.ALL)
+            .build()
+
+        mediaManager.pullMediaFileListFromCamera(param, object : CommonCallbacks.CompletionCallback {
+            override fun onSuccess() {
+                val mediaFiles = mediaManager.getMediaFileListData()?.getData() ?: emptyList()
+                val missed = mediaFiles.filter { mf ->
+                    val id = mf.fileName ?: return@filter false
+                    !processedFiles.contains(id) && mediaFileTypeCategory(mf.fileType) != null
+                }
+                if (missed.isNotEmpty()) {
+                    val names = missed.mapNotNull { it.fileName }
+                    FileLogger.w(
+                        TAG,
+                        "[END-MISSION] 漏检文件补偿: count=${missed.size} files=$names"
+                    )
+                } else {
+                    FileLogger.i(TAG, "[END-MISSION] 无漏检文件")
+                }
+                val fileCount = mediaFiles.size
+                FileLogger.i(TAG, "拉取媒体文件列表成功 fileCount=$fileCount")
+            }
+
+            override fun onFailure(error: IDJIError) {
+                FileLogger.w(
+                    TAG,
+                    "[END-MISSION] 拉取媒体文件列表失败: ${error.description()} code=${error.errorCode()} storage=$activeStorageLocation camera=$activeCameraIndex"
+                )
+                fallbackToInternalStorage()
+            }
+        })
+    }
+
+    /**
+     * 与 [handleNewMediaFiles] 中类型判定一致：可上传的照片/视频返回 `"photo"` / `"video"`，否则返回 null。
+     */
+    private fun mediaFileTypeCategory(fileType: MediaFileType): String? = when (fileType) {
+        MediaFileType.JPEG,
+        MediaFileType.DNG,
+        MediaFileType.TIFF,
+        MediaFileType.PANORAMA,
+        MediaFileType.TIFF_SEQ,
+        MediaFileType.CNDG,
+        MediaFileType.LDR,
+        MediaFileType.LDRT,
+        MediaFileType.RPT,
+        MediaFileType.MET,
+        MediaFileType.CLC,
+        MediaFileType.CLI,
+        MediaFileType.LRF,
+        MediaFileType.THM,
+        MediaFileType.SCR -> "photo"
+
+        MediaFileType.MOV,
+        MediaFileType.MP4,
+        MediaFileType.SEQ -> "video"
+
+        MediaFileType.PHOTO_FOLDER,
+        MediaFileType.VIDEO_FOLDER,
+        MediaFileType.FOLDER_ATTR,
+        MediaFileType.AUDIO,
+        MediaFileType.UNKNOWN -> null
+
+        else -> {
+            FileLogger.w(TAG, "未知的文件类型: $fileType（不参与上传/漏检统计）")
+            null
+        }
+    }
+
+    /**
      * 处理新生成的媒体文件
      * 获取文件列表，找出新文件并移动到任务文件夹
      */
@@ -602,40 +691,7 @@ class CameraService(
                 }
 
                 // 根据 MediaFileType 枚举判断是照片还是视频（先判定类型再标记已处理）
-                val fileType: String = when (mediaFile.fileType) {
-                    MediaFileType.JPEG,
-                    MediaFileType.DNG,
-                    MediaFileType.TIFF,
-                    MediaFileType.PANORAMA,
-                    MediaFileType.TIFF_SEQ,
-                    MediaFileType.CNDG,
-                    MediaFileType.LDR,
-                    MediaFileType.LDRT,
-                    MediaFileType.RPT,
-                    MediaFileType.MET,
-                    MediaFileType.CLC,
-                    MediaFileType.CLI,
-                    MediaFileType.LRF,
-                    MediaFileType.THM,
-                    MediaFileType.SCR -> "photo"
-
-                    MediaFileType.MOV,
-                    MediaFileType.MP4,
-                    MediaFileType.SEQ -> "video"
-
-                    MediaFileType.PHOTO_FOLDER,
-                    MediaFileType.VIDEO_FOLDER,
-                    MediaFileType.FOLDER_ATTR,
-                    MediaFileType.AUDIO,
-                    MediaFileType.UNKNOWN -> {
-                        return@forEachIndexed
-                    }
-
-                    else -> {
-                        FileLogger.w(TAG, "未知的文件类型: ${mediaFile.fileType}, 文件名: $fileId")
-                        return@forEachIndexed
-                    }
-                }
+                val fileType: String = mediaFileTypeCategory(mediaFile.fileType) ?: return@forEachIndexed
 
                 processedFiles.add(fileId)
                 val orderForUpload = uploadOrder++

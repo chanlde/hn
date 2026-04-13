@@ -13,13 +13,11 @@ mqtthandle/
 │
 ├── 监听器层（Listener Layer）
 │   ├── LandingConfirmationListener.kt   # 降落确认监听器（自动确认降落）
-│   ├── MissionStateListener.kt          # 任务状态监听器（起飞开始任务/降落结束任务）
 │   └── FlightDataReport.kt              # 飞行数据上报器（周期性上报到MQTT）
 │
 ├── 管理器层（Manager Layer）
-│   ├── MissionTaskManager.kt            # 任务生命周期管理器
-│   ├── MissionFolderManager.kt          # 任务文件夹管理器
-│   └── MissionFileUploader.kt           # 任务文件上传器
+│   ├── MissionFolderManager.kt          # 任务文件夹管理器（CameraService 内使用）
+│   └── MissionFileUploader.kt           # 任务文件上传器（CameraService 内使用）
 │
 ├── 工具层（Utility Layer）
 │   ├── FileDownloader.kt                # 文件下载工具
@@ -38,7 +36,7 @@ mqtthandle/
 | 原类名 | 新类名 | 原因 |
 |-------|--------|------|
 | `FlightListener` | `LandingConfirmationListener` | 原名太宽泛，实际只处理降落确认 |
-| `MissionFlightListener` | `MissionStateListener` | 避免与降落监听器混淆，更清晰表达职责 |
+| `MissionFlightListener` | （已移除） | 原 `MissionStateListener` / `MissionTaskManager` 未接入业务，已删除；任务结束兜底拉媒体见 `DeviceDataManager.resetMissionState` |
 
 ---
 
@@ -83,6 +81,7 @@ mqtthandle/
 - **数据源**：
   - Key 轮询（电池、GPS、飞行状态等）
   - 监听器（航点索引等）
+- **航线结束**：`WaypointMissionExecuteState` 回到 `READY` 时调用 `resetMissionState()`，并延迟触发 `CameraService.pullMediaFileList()`、条件清除 `currentMissionFolderPath`（与相机漏检补偿对齐）
 - **生命周期**：需要调用 `destroy()` 清理
 
 ---
@@ -95,13 +94,6 @@ mqtthandle/
 - **行为**：自动调用 `KeyConfirmLanding`
 - **生命周期**：需要调用 `destroy()` 清理
 
-#### MissionStateListener
-- **职责**：监听飞行状态，自动管理任务
-- **触发条件**：
-  - 起飞（`KeyIsFlying` 从 false → true）→ 调用 `taskManager.startMission()`
-  - 降落（`KeyIsFlying` 从 true → false）→ 调用 `taskManager.endMission()`
-- **生命周期**：需要调用 `destroy()` 清理
-
 #### FlightDataReport
 - **职责**：周期性上报飞行数据到 MQTT
 - **频率**：每 200ms 一次（每秒 5 次）
@@ -111,13 +103,6 @@ mqtthandle/
 ---
 
 ### 3. 管理器层
-
-#### MissionTaskManager
-- **职责**：管理任务的生命周期
-- **功能**：
-  - 创建任务文件夹
-  - 记录任务信息
-  - 触发文件上传
 
 #### MissionFolderManager
 - **职责**：管理本地任务文件夹
@@ -152,17 +137,12 @@ mqtthandle/
 MQTT 消息 → MqttMessageHandler → FlightControlService → DJI SDK
 ```
 
-### 任务管理流程
+### 任务管理流程（媒体）
 ```
-起飞检测 → MissionStateListener → MissionTaskManager
-                                      ↓
-                              创建文件夹 + 通知 CameraService
-                                      ↓
-                              拍照/录像 → 自动保存
-                                      ↓
-降落检测 → MissionStateListener → MissionTaskManager
-                                      ↓
-                              触发文件上传
+航线任务正常结束 (WaypointMissionExecuteState: FINISHED -> READY)
+    → WaypointMissionStateManager：清空上报航点/taskStatus 等 + 延迟 pullMediaFileListForEndMission()
+    → 不自动 clearMissionFolderPath()（仅显式调用或下次 setMissionFolderPath 覆盖）
+拍照/录像 / KeyNewlyGeneratedMediaFile → CameraService 下载与 MinIO 上传
 ```
 
 ### 数据上报流程

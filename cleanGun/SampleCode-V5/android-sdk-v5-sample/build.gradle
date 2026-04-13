@@ -165,7 +165,6 @@ dependencies {
     implementation deps.constraintLayout
     implementation deps.coroutinesCore
 
-    implementation("com.github.pedroSG94.RootEncoder:library:2.4.3")
     implementation("io.minio:minio:8.5.2")
     implementation 'javax.xml.stream:stax-api:1.0-2'
     implementation 'org.codehaus.woodstox:woodstox-core-asl:4.4.1'  // 添加 Woodstox XML 解析库

@@ -251,8 +251,8 @@ abstract class DJIMainActivity : AppCompatActivity() {
         var retryCount = 0
 
         fun checkFcSn() {
-            var deviceId = getFcSn()
-            deviceId = "cccc";
+            val deviceId = getFcSn()
+//            deviceId = "cccc";
 
             if (deviceId.isNotBlank()) {
                 // 获取到SN，直接继续执行

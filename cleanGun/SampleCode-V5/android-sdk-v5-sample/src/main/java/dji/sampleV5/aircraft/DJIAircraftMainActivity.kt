@@ -2,7 +2,6 @@ package dji.sampleV5.aircraft
 
 import android.location.LocationManager
 import android.util.Log
-import androidx.lifecycle.lifecycleScope
 import com.dji.network.GeneralUtils.rtmpUrl
 import dji.sampleV5.aircraft.manager.LocationService
 import dji.sampleV5.aircraft.util.LocationHelper
@@ -17,7 +16,6 @@ import dji.v5.ux.core.communication.GlobalPreferencesManager
 import dji.v5.ux.core.util.UxSharedPreferencesUtil
 import dji.sdk.keyvalue.key.FlightControllerKey
 import dji.v5.ux.sample.showcase.defaultlayout.DefaultLayoutActivity
-import kotlinx.coroutines.launch
 
 /**
  * Class Description
@@ -102,43 +100,24 @@ class DJIAircraftMainActivity : DJIMainActivity() {
 
     private fun startRtmpStreaming() {
         try {
-            val rtmpUrl = rtmpUrl
-
-            Log.d(TAG, "准备启动后台推流: $rtmpUrl")
-
-            // 创建推流器
-            rtmpStreamer = FpvRtmpStreamer.create(rtmpUrl)
-
-            // 添加回调（可选，用于日志）
-            rtmpStreamer?.addCallback(object : dji.sampleV5.aircraft.video.callback.StreamCallback {
-                override fun onConnectionSuccess() {
-                    Log.d(TAG, "推流连接成功")
-                }
-
-                override fun onConnectionFailed(reason: String) {
-                    Log.e(TAG, "推流连接失败: $reason")
-                }
-
-                override fun onVideoConfigSet(width: Int, height: Int, mimeType: String) {
-                    Log.d(TAG, "推流视频参数: ${width}x${height}, $mimeType")
-                }
-            })
-
-            // 开始推流
+            val url = rtmpUrl
+            Log.d(TAG, "准备启动推流 (ILiveStreamManager): $url")
+            rtmpStreamer = FpvRtmpStreamer.create(url)
             rtmpStreamer?.startStreaming()
-
-            Log.d(TAG, "后台推流已启动")
+            Log.d(TAG, "推流已启动")
         } catch (e: Exception) {
             Log.e(TAG, "启动推流失败: ${e.message}", e)
         }
     }
 
-    /**
-     * 停止 RTMP 推流
-     */
     private fun stopRtmpStreaming() {
         rtmpStreamer?.stopStreaming()
         rtmpStreamer = null
-        Log.d(TAG, "后台推流已停止")
+        Log.d(TAG, "推流已停止")
+    }
+
+    override fun onDestroy() {
+        stopRtmpStreaming()
+        super.onDestroy()
     }
 }

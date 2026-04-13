@@ -119,7 +119,9 @@ data class FlightReportData(
     // 22. waypointMissionExecuteState - 航线任务执行状态
     var waypointMissionExecuteState: String? = null,
     // 23. cameraMode - 相机拍摄模式（如 PHOTO_NORMAL / VIDEO_NORMAL）
-    var cameraMode: String? = null
+    var cameraMode: String? = null,
+
+    var UAVBatteryRemaining : Int? = null
 ) {
     /**
      * 生成新的 tid 并按严格顺序转换为 JSON 字符串
@@ -178,6 +180,8 @@ data class FlightReportData(
             addProperty("waypointMissionExecuteState", waypointMissionExecuteState)
             // 23. cameraMode
             addProperty("cameraMode", cameraMode)
+
+            addProperty("UAVBatteryRemaining", UAVBatteryRemaining)
         }
         
         return json.toString()

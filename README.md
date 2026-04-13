@@ -1,10 +1,19 @@
-# V1.2.0 新增说明（相对 V1.1.8）
+# V1.2.5 发行说明（相对 V1.2.0）
 
-**当前发行版：** V1.2.0（2026-04-10）
+**当前发行版：** V1.2.5（2026-04-12）
 
 ---
 
-## 一、多镜头存储设置（UXSDK）
+## V1.2.5 主要变更
+
+| 项 | 说明 |
+|------|------|
+| RTMP 推流精简 | `FpvRtmpStreamer` 移除飞控 `KeyConnection` 监听及「航线结束 + 飞控重连」触发的 stop/start；保留会话 start/stop、`LiveStreamStatus` 掉线与 `onError` 的指数退避重试。 |
+| 回调链移除 | 删除 `WaypointMissionStateManager` 的 `onWaypointMissionFinished` 及 `DeviceDataManager` 中对 `FpvRtmpStreamer.notifyWaypointMissionEnded()` 的调用；**不影响** `WaypointMissionStateManager` 在飞控重连后重新注册航线监听的逻辑。 |
+
+---
+
+## 一、多镜头存储设置（UXSDK，V1.2.0 起）
 
 | 项 | 说明 |
 |------|------|
@@ -16,7 +25,7 @@
 
 | 项 | 说明 |
 |------|------|
-| 飞控重连 | `DeviceDataManager` 监听 `FlightControllerKey.KeyConnection`；在 **断连 → 已连接**（含首次 `null → true`）时调用 `resetMissionState()` 并 `reRegisterWaypointListeners()`，重新挂 `WaypointMissionManager` 的航点与任务状态监听，避免飞机关机再开后 `currentWaypointIndex` 长期不更新、需重启 App 的问题。 |
+| 飞控重连 | 由 `WaypointMissionStateManager` 监听 `FlightControllerKey.KeyConnection`；当 **之前未处于已连接** 且 **当前已连接**（`!wasConnected && connected`，含首次 `null → true`）时，仅调用 `reRegisterWaypointListeners()`，重新挂载 `WaypointMissionManager` 的航点与任务状态监听，避免飞机关机再开后 `currentWaypointIndex` 长期不更新、需重启 App 的问题。**该路径不自动调用** `DeviceDataManager.resetMissionState()`；任务字段清空与 `resetMissionState()` 由上层显式逻辑触发。 |
 
 ---
 
@@ -26,4 +35,4 @@
 
 ---
 
-**最后更新：** 2026-04-10
+**最后更新：** 2026-04-12

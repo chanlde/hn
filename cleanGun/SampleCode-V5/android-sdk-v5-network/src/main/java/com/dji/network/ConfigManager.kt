@@ -61,7 +61,7 @@ object ConfigManager {
 # ========================================
 
 # RTMP 推流地址
-rtmp_url=rtmp://192.168.0.117:1935/live/stream
+rtmp_url=rtmp://192.168.1.5:1935/live/stream
 
 # MinIO 配置
 minio_endpoint=http://192.168.1.201:18005
