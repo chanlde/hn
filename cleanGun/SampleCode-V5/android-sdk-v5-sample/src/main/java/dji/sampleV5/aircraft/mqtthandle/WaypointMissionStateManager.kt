@@ -324,6 +324,8 @@ class WaypointMissionStateManager(
         clearMissionReportingLockedAlreadyHeld()
         FileLogger.i(TAG, "[DIAG-WP] 任务结束: 上报字段已清空（保留任务文件夹路径）")
         scheduleEndMissionMediaPullLockedAlreadyHeld("任务结束")
+        // 关闭 CameraService 任务会话：延迟关闭，给 pullMediaFileListForEndMission 的补扫留处理窗口
+        getCameraService()?.endMissionSession("waypointFinished")
     }
 
     fun destroy() {

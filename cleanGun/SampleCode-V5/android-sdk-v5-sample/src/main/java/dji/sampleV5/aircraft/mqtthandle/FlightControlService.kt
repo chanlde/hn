@@ -19,8 +19,12 @@ import dji.v5.manager.KeyManager
 /**
  * 飞行控制服务
  * 职责：处理起飞、降落、返航等飞行控制指令
+ *
+ * 可选注入 [CameraService]，用于在降落成功后关闭任务会话（避免相机继续自动回传文件）。
  */
-class FlightControlService {
+class FlightControlService(
+    private val cameraService: CameraService? = null
+) {
     companion object {
         private const val TAG = "FlightControlService"
     }
@@ -67,6 +71,8 @@ class FlightControlService {
                 response.message="降落成功"
                 response.result=true.toString()
                 sendResponse(response)
+                // 降落成功 -> 延迟关闭 CameraService 任务会话，阻断后续自动回传
+                cameraService?.endMissionSession("landSuccess")
             }
 
             override fun onFailure(error: IDJIError) {

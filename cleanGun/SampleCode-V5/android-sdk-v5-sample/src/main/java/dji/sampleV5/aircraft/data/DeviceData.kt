@@ -19,6 +19,22 @@ inline fun <reified T> getValueForKey(keyInfo: DJIKeyInfo<T>): T? {
 }
 
 /**
+ * 仅当值非 null 时写入 JSON，避免后端收到 null 字段导致下游误判为"状态丢失"。
+ * 标量字段（Boolean / Number / String）各自提供一个重载。
+ */
+fun JsonObject.addIfNotNull(name: String, value: Boolean?) {
+    if (value != null) addProperty(name, value)
+}
+
+fun JsonObject.addIfNotNull(name: String, value: Number?) {
+    if (value != null) addProperty(name, value)
+}
+
+fun JsonObject.addIfNotNull(name: String, value: String?) {
+    if (value != null) addProperty(name, value)
+}
+
+/**
  * 飞机位置数据（匹配示例格式）
  * 顺序：longitude, latitude, height
  */
@@ -130,91 +146,69 @@ data class FlightReportData(
      */
     fun toJsonString(): String {
         tid = UUID.randomUUID().toString()
-        
-        val json = JsonObject().apply {
-            // 1. tid
-            addProperty("tid", tid)
-            // 2. connection
-            addProperty("connection", connection)
-            // 3. isFlying
-            addProperty("isFlying", isFlying)
-            // 4. flightTimeInSeconds
-            addProperty("flightTimeInSeconds", flightTimeInSeconds)
-            // 5. aircraftLocation3D
-            aircraftLocation3D?.let { add("aircraftLocation3D", it.toJsonObject()) }
-            // 6. aircraftAttitude
-            aircraftAttitude?.let { add("aircraftAttitude", it.toJsonObject()) }
-            // 7. aircraftVelocity
-            aircraftVelocity?.let { add("aircraftVelocity", it.toJsonObject()) }
-            // 8. takeoffLocationAltitude
-            addProperty("takeoffLocationAltitude", takeoffLocationAltitude)
-            addProperty("relativeAltitudeFromTakeoff", relativeAltitudeFromTakeoff)
-            addProperty("altitudeAMSL", altitudeAMSL)
-            // 9. satelliteCount
-            addProperty("satelliteCount", satelliteCount)
-            // 10. GNSSSignalLevel
-            addProperty("GNSSSignalLevel", GNSSSignalLevel)
-            // 11. compassHeading
-            addProperty("compassHeading", compassHeading)
-            // 12. compassHasError
-            addProperty("compassHasError", compassHasError)
-            // 13. ultrasonicHeight
-            addProperty("ultrasonicHeight", ultrasonicHeight)
-            // 14. windWarning
-            addProperty("windWarning", windWarning)
-            // 15. windSpeed
-            addProperty("windSpeed", windSpeed)
-            // 16. windDirection
-            addProperty("windDirection", windDirection)
-            // 17. currentWaypointIndex
-            addProperty("currentWaypointIndex", currentWaypointIndex)
-            // 18. flightMode
-            addProperty("flightMode", flightMode)
-            // 19. handsetLatitude
-            addProperty("handsetLatitude", handsetLatitude)
-            // 20. handsetLongitude
-            addProperty("handsetLongitude", handsetLongitude)
-            // 21. currentTaskStatus
-            addProperty("currentTaskStatus", currentTaskStatus)
-            // 22. waypointMissionExecuteState
-            addProperty("waypointMissionExecuteState", waypointMissionExecuteState)
-            // 23. cameraMode
-            addProperty("cameraMode", cameraMode)
 
-            addProperty("UAVBatteryRemaining", UAVBatteryRemaining)
+        val json = JsonObject().apply {
+            // 1. tid（始终写入，作为消息ID）
+            addProperty("tid", tid)
+            // 其余字段仅在非 null 时写入，避免 SDK 瞬时返回 null 时被下游误判
+            addIfNotNull("connection", connection)
+            addIfNotNull("isFlying", isFlying)
+            addIfNotNull("flightTimeInSeconds", flightTimeInSeconds)
+            aircraftLocation3D?.let { add("aircraftLocation3D", it.toJsonObject()) }
+            aircraftAttitude?.let { add("aircraftAttitude", it.toJsonObject()) }
+            aircraftVelocity?.let { add("aircraftVelocity", it.toJsonObject()) }
+            addIfNotNull("takeoffLocationAltitude", takeoffLocationAltitude)
+            addIfNotNull("relativeAltitudeFromTakeoff", relativeAltitudeFromTakeoff)
+            addIfNotNull("altitudeAMSL", altitudeAMSL)
+            addIfNotNull("satelliteCount", satelliteCount)
+            addIfNotNull("GNSSSignalLevel", GNSSSignalLevel)
+            addIfNotNull("compassHeading", compassHeading)
+            addIfNotNull("compassHasError", compassHasError)
+            addIfNotNull("ultrasonicHeight", ultrasonicHeight)
+            addIfNotNull("windWarning", windWarning)
+            addIfNotNull("windSpeed", windSpeed)
+            addIfNotNull("windDirection", windDirection)
+            addIfNotNull("currentWaypointIndex", currentWaypointIndex)
+            addIfNotNull("flightMode", flightMode)
+            addIfNotNull("handsetLatitude", handsetLatitude)
+            addIfNotNull("handsetLongitude", handsetLongitude)
+            addIfNotNull("currentTaskStatus", currentTaskStatus)
+            addIfNotNull("waypointMissionExecuteState", waypointMissionExecuteState)
+            addIfNotNull("cameraMode", cameraMode)
+            addIfNotNull("UAVBatteryRemaining", UAVBatteryRemaining)
         }
-        
+
         return json.toString()
     }
-    
+
     fun toPrettyJsonString(): String {
         tid = UUID.randomUUID().toString()
         val gson = GsonBuilder().setPrettyPrinting().create()
-        
+
         val json = JsonObject().apply {
             addProperty("tid", tid)
-            addProperty("connection", connection)
-            addProperty("isFlying", isFlying)
-            addProperty("flightTimeInSeconds", flightTimeInSeconds)
+            addIfNotNull("connection", connection)
+            addIfNotNull("isFlying", isFlying)
+            addIfNotNull("flightTimeInSeconds", flightTimeInSeconds)
             aircraftLocation3D?.let { add("aircraftLocation3D", it.toJsonObject()) }
             aircraftAttitude?.let { add("aircraftAttitude", it.toJsonObject()) }
             aircraftVelocity?.let { add("aircraftVelocity", it.toJsonObject()) }
-            addProperty("takeoffLocationAltitude", takeoffLocationAltitude)
-            addProperty("relativeAltitudeFromTakeoff", relativeAltitudeFromTakeoff)
-            addProperty("altitudeAMSL", altitudeAMSL)
-            addProperty("satelliteCount", satelliteCount)
-            addProperty("GNSSSignalLevel", GNSSSignalLevel)
-            addProperty("compassHeading", compassHeading)
-            addProperty("compassHasError", compassHasError)
-            addProperty("ultrasonicHeight", ultrasonicHeight)
-            addProperty("windWarning", windWarning)
-            addProperty("windSpeed", windSpeed)
-            addProperty("windDirection", windDirection)
-            addProperty("currentWaypointIndex", currentWaypointIndex)
-            addProperty("flightMode", flightMode)
-            addProperty("cameraMode", cameraMode)
+            addIfNotNull("takeoffLocationAltitude", takeoffLocationAltitude)
+            addIfNotNull("relativeAltitudeFromTakeoff", relativeAltitudeFromTakeoff)
+            addIfNotNull("altitudeAMSL", altitudeAMSL)
+            addIfNotNull("satelliteCount", satelliteCount)
+            addIfNotNull("GNSSSignalLevel", GNSSSignalLevel)
+            addIfNotNull("compassHeading", compassHeading)
+            addIfNotNull("compassHasError", compassHasError)
+            addIfNotNull("ultrasonicHeight", ultrasonicHeight)
+            addIfNotNull("windWarning", windWarning)
+            addIfNotNull("windSpeed", windSpeed)
+            addIfNotNull("windDirection", windDirection)
+            addIfNotNull("currentWaypointIndex", currentWaypointIndex)
+            addIfNotNull("flightMode", flightMode)
+            addIfNotNull("cameraMode", cameraMode)
         }
-        
+
         return gson.toJson(json)
     }
 }

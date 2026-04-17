@@ -2,7 +2,7 @@
 
 基于大疆 MSDK V5 开发的自定义功能列表
 
-**当前发布版本：** V1.2.5（与 `android-sdk-v5-as/gradle.properties` 中 `APP_VERSION_NAME` 一致）
+**当前发布版本：** V1.2.6（与 `android-sdk-v5-as/gradle.properties` 中 `APP_VERSION_NAME` 一致）
 
 ## 项目概述
 
@@ -87,6 +87,7 @@
 
 #### 3.3 媒体文件管理
 
+- **任务会话（V1.2.6）**：`setTaskFile` 下发任务 ID 后进入「任务会话」，仅处理本会话内产生的新媒体；任务结束（航线 FINISHED→READY 或自动降落成功）后延迟关闭会话，减少机内历史照片被批量上传。断点暂停/续飞不重新下发任务文件时，会话保持，续飞期间媒体仍属同一会话。
 - **自动下载**：拍照/录像后自动下载媒体文件
 - **自动分类**：自动区分可见光（CCD）和红外（FIR）照片
 - **文件命名识别**：通过文件名后缀判断相机类型
@@ -337,6 +338,14 @@ fcDeviceIdList = listOf(
 
 ## 版本更新记录
 
+### V1.2.6 (2026-04-17)
+
+**变更：**
+- **飞行数据上报**：`FlightReportData` JSON 省略 null 标量字段；MQTT 发布前过滤「仅含 tid」的空心帧，降低后端看到飞行状态为 null 的情况。
+- **相机媒体**：任务会话 `isMissionActive`（`setTaskId` 开启；航线结束 / 降落成功后延迟关闭）；`handleNewMediaFiles` 仅在会话内处理新媒体；`gradle.properties` 中 Kotlin 升至 **1.9.24** 以修复部分 JDK 17 下 kapt 编译问题。
+
+---
+
 ### V1.2.5 (2026-04-12)
 
 **变更：**
@@ -426,6 +435,6 @@ android-sdk-v5-network/
 
 ---
 
-**最后更新日期：** 2026-04-12
+**最后更新日期：** 2026-04-17
 
 

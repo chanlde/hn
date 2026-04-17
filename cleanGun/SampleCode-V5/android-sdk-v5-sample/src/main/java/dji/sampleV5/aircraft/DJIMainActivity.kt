@@ -90,10 +90,9 @@ abstract class DJIMainActivity : AppCompatActivity() {
     private lateinit var mqttManager: MqttManager
 
     val taskService = TaskService(this)
-    val flightControlService = FlightControlService()
-    val missionControlService = MissionControlService()
-
     val cameraService = CameraService(this, fcDeviceId)
+    val flightControlService = FlightControlService(cameraService)
+    val missionControlService = MissionControlService()
 
     // 飞行数据上报服务（延迟初始化，在MQTT连接成功后创建）
     private var flightDataReport: FlightDataReport? = null

@@ -65,6 +65,8 @@ class CameraService(
         private const val TAG = "CameraService"
         private const val MAX_UPLOAD_RETRIES = 3
         private const val RETRY_BASE_DELAY_MS = 2000L
+        /** 任务结束后保留开启的缓冲时间：给 end-mission 补扫 + UP_TO_DATE 回调留处理窗口 */
+        private const val MISSION_END_GRACE_MS = 10_000L
     }
     private val uploadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     /** MinIO 上传串行化，避免并发到达服务端顺序错乱 */
@@ -89,6 +91,17 @@ class CameraService(
     private var currentTaskId: String? = "cccccccccccccc"
     private var isRecording = false
     private val uploadingCount = AtomicInteger(0)
+
+    /**
+     * 任务会话开关：为 true 才会下载/上传相机新产生的媒体文件。
+     * 在 [setTaskId] 时打开；在 [endMissionSession] 延迟后关闭。
+     * 任务外（开关 false）相机自动上送的历史照片一律被 [handleNewMediaFiles] 拒绝。
+     */
+    @Volatile
+    private var isMissionActive: Boolean = false
+
+    /** 延迟关闭 isMissionActive 的 runnable；存在表示已排队，再次触发时会 removeCallbacks 续上 */
+    private var missionEndRunnable: Runnable? = null
 
     @Volatile
     var isUploading: Boolean = false
@@ -229,12 +242,45 @@ class CameraService(
     }
 
     /**
-     * 设置任务ID（从下发的航线任务中获取）
-     * 在收到航线任务时调用
+     * 设置任务ID（从下发的航线任务中获取），同时开启一次任务会话。
+     *
+     * 任务会话打开期间，相机产生的新文件才会被 [handleNewMediaFiles] 下载并上传；
+     * 任务外（开关关闭）相机的任何自动上送都会被忽略，避免历史照片被批量回传。
      */
     fun setTaskId(taskId: String) {
         currentTaskId = taskId
-        FileLogger.i(TAG, "设置任务ID: $taskId")
+
+        // 若之前有延迟关闭的 callback 还在队列里（上一次任务结束的缓冲期），直接续上，避免任务中间突然关闭
+        missionEndRunnable?.let { mainHandler.removeCallbacks(it) }
+        missionEndRunnable = null
+
+        // 把此刻相机卡上已有的文件作为"历史基线"拉黑，后续新拍才会触发下载
+        markExistingFilesAsProcessed()
+        isMissionActive = true
+        FileLogger.i(TAG, "[MISSION-START] taskId=$taskId isMissionActive=true")
+    }
+
+    /**
+     * 结束任务会话（幂等）：延迟 [MISSION_END_GRACE_MS] 后关闭 [isMissionActive]。
+     *
+     * 缓冲期是为了让：
+     * - `WaypointMissionStateManager` FINISHED 后 2s 触发的 `pullMediaFileListForEndMission`
+     * - 其引起的 `UP_TO_DATE -> handleNewMediaFiles`
+     *
+     * 都能在开关仍为 true 的窗口内完成下载；超时后任何回调均被拒绝，避免相机自动上送历史文件。
+     */
+    fun endMissionSession(reason: String) {
+        if (!isMissionActive && missionEndRunnable == null) {
+            return
+        }
+        missionEndRunnable?.let { mainHandler.removeCallbacks(it) }
+        FileLogger.i(TAG, "[MISSION-END] reason=$reason 将在 ${MISSION_END_GRACE_MS}ms 后关闭任务会话")
+        missionEndRunnable = Runnable {
+            isMissionActive = false
+            missionEndRunnable = null
+            FileLogger.i(TAG, "[MISSION-END] isMissionActive=false reason=$reason")
+        }
+        mainHandler.postDelayed(missionEndRunnable!!, MISSION_END_GRACE_MS)
     }
 
     /**
@@ -655,6 +701,21 @@ class CameraService(
      * 获取文件列表，找出新文件并移动到任务文件夹
      */
     private fun handleNewMediaFiles() {
+        if (!isMissionActive) {
+            val fileCount = try {
+                mediaManager.getMediaFileListData()?.getData()?.size ?: 0
+            } catch (e: Exception) {
+                -1
+            }
+            FileLogger.throttledD(
+                TAG,
+                "missionInactiveSkip",
+                "当前无任务会话，跳过新媒体处理 files=$fileCount",
+                5_000L
+            )
+            return
+        }
+
         val missionPath = currentMissionFolderPath ?: run {
             FileLogger.w(TAG, "无任务文件夹路径，跳过新媒体处理")
             return
@@ -1170,9 +1231,12 @@ class CameraService(
         pullListAfterPhotoRunnable?.let { mainHandler.removeCallbacks(it) }
         pullListAfterVideoRunnable?.let { mainHandler.removeCallbacks(it) }
         newMediaFilePullRunnable?.let { mainHandler.removeCallbacks(it) }
+        missionEndRunnable?.let { mainHandler.removeCallbacks(it) }
         pullListAfterPhotoRunnable = null
         pullListAfterVideoRunnable = null
         newMediaFilePullRunnable = null
+        missionEndRunnable = null
+        isMissionActive = false
 
         removeNewGeneratedMediaFileListener()
 
