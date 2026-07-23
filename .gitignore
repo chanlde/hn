@@ -1,0 +1,59 @@
+# Local workspace
+.vs/
+.vscode/
+.idea/
+.cursor/
+.svn/
+*.user
+*.bak
+*.tmp
+*.log
+*.zip
+
+# Python / PyInstaller
+__pycache__/
+*.py[cod]
+serial_ota/_build_tmp/
+serial_ota/_dist_tmp/
+serial_ota/build/
+serial_ota/dist/
+serial_ota/*.spec
+
+# Keil / ARMCC generated outputs
+*.axf
+*.hex
+*.map
+*.htm
+*.html
+*.lnp
+*.dep
+*.crf
+*.o
+*.d
+*.lst
+*.__i
+*.iex
+*.sct.bak
+JLinkLog.txt
+JLinkSettings.ini
+*.uvguix.*
+*.dbgconf.update@*
+
+# Keep source scatter files
+!APP/MDK-ARM/APP/APP.sct
+!APP/MDK-ARM/APP/APP_B.sct
+!Bootloader/MDK-ARM/Bootloader.sct
+
+# Firmware binaries are generated from Keil unless explicitly released.
+*.bin
+production/
+
+# Customer updater deliverable
+*.exe
+!serial_ota/SolarCleanFirmwareUpdater.exe
+
+# Local private credentials/config. Do not commit real keys or passwords.
+BSP/dji_sdk_app_info.h
+BSP/dji_sdk_app_info_local.h
+DJI_PSDK/APP/mqtt_task/mqtt_app_config.h
+DJI_PSDK/APP/mqtt_task/mqtt_app_config_local.h
