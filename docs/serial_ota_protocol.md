@@ -100,7 +100,7 @@ GET_DEVICE_INFO
 The response includes firmware identity and `extParams`:
 
 ```json
-{"type":"deviceInfo","ok":true,"firmwareVersion":"0.1.10.0","innerVersion":20,"extParams":{"failsafeHoldEnabled":false,"remoteControlEnabled":true,"fourGEnabled":true,"psdkEnabled":true}}
+{"type":"deviceInfo","ok":true,"firmwareVersion":"0.1.18.0","innerVersion":28,"extParams":{"failsafeHoldEnabled":false,"remoteControlEnabled":true,"fourGEnabled":true,"psdkEnabled":true,"servoLeftLimitDegX10":300,"servoRightLimitDegX10":420,"swingAmplitudePercent":100,"swingSpeedPercent":0}}
 ```
 
 Extended parameters use one command format:
@@ -112,6 +112,33 @@ SET_DEVICE_PARAM <name> 0|1
 Supported names are `failsafeHoldEnabled`, `remoteControlEnabled`,
 `fourGEnabled`, and `psdkEnabled`. The `psdkEnabled` setting is stored in Flash
 and takes effect on the next boot.
+
+### Servo left/right limit calibration
+
+The PC tool exposes independent maximum travel from the mechanical center to
+the left and right sides. Values use 0.1 degree units on the wire:
+
+```text
+SET_SERVO_LIMITS <leftDegX10> <rightDegX10> <save>
+SET_SERVO_MOTION <amplitudePercent> <speedPercent> <save>
+SET_SERVO_SWING 0|1
+```
+
+For example, `SET_SERVO_LIMITS 300 420 0` immediately applies a 30.0 degree
+left limit and a 42.0 degree right limit without writing Flash. Send the same
+command with `save=1` after the test swing is mechanically clear. The accepted
+range is 0.0 to 90.0 degrees on each side. `SET_SERVO_SWING 1` starts a dry
+servo test and does not turn on the water pump; `SET_SERVO_SWING 0` stops it.
+
+Amplitude and speed are integer percentages from 0 to 100. Amplitude scales
+each side independently inside its configured safety boundary. For example,
+with 30 degrees left and 42 degrees right, 50% amplitude swings 15 degrees
+left and 21 degrees right. `SET_SERVO_MOTION 50 35 1` applies both values and
+saves the complete current servo configuration to Flash.
+
+The left/right boundaries are enforced by the common PWM swing layer, so PSDK,
+DS800 remote-control, 4G/MQTT, and serial test commands all use the same
+mechanical safety limits.
 
 Chunk accepted:
 

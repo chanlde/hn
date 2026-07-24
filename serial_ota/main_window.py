@@ -7,11 +7,14 @@ from PyQt5.QtWidgets import (
     QCheckBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QGridLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -23,6 +26,8 @@ from widgets.connect_panel import ConnectPanel
 from widgets.firmware_panel import FirmwarePanel
 from widgets.log_panel import LogPanel
 from widgets.upgrade_panel import UpgradePanel
+
+HANDSHAKE_MAX_SEND_COUNT = 50
 
 
 class MainWindow(QMainWindow):
@@ -148,6 +153,55 @@ class MainWindow(QMainWindow):
         self.psdk_hint_label.setProperty("muted", True)
         root.addWidget(self.psdk_hint_label)
 
+        servo_group = QGroupBox("舵机左右边界校准")
+        servo_layout = QGridLayout(servo_group)
+        self.servo_left_limit_spin = QDoubleSpinBox()
+        self.servo_left_limit_spin.setRange(0.0, 90.0)
+        self.servo_left_limit_spin.setDecimals(1)
+        self.servo_left_limit_spin.setSingleStep(0.5)
+        self.servo_left_limit_spin.setSuffix("°")
+        self.servo_right_limit_spin = QDoubleSpinBox()
+        self.servo_right_limit_spin.setRange(0.0, 90.0)
+        self.servo_right_limit_spin.setDecimals(1)
+        self.servo_right_limit_spin.setSingleStep(0.5)
+        self.servo_right_limit_spin.setSuffix("°")
+        servo_layout.addWidget(QLabel("向左最大摆角"), 0, 0)
+        servo_layout.addWidget(self.servo_left_limit_spin, 0, 1)
+        servo_layout.addWidget(QLabel("向右最大摆角"), 1, 0)
+        servo_layout.addWidget(self.servo_right_limit_spin, 1, 1)
+
+        self.swing_amplitude_spin = QSpinBox()
+        self.swing_amplitude_spin.setRange(0, 100)
+        self.swing_amplitude_spin.setSingleStep(5)
+        self.swing_amplitude_spin.setSuffix("%")
+        self.swing_amplitude_spin.setValue(100)
+        self.swing_speed_spin = QSpinBox()
+        self.swing_speed_spin.setRange(0, 100)
+        self.swing_speed_spin.setSingleStep(5)
+        self.swing_speed_spin.setSuffix("%")
+        servo_layout.addWidget(QLabel("摆动幅度"), 2, 0)
+        servo_layout.addWidget(self.swing_amplitude_spin, 2, 1)
+        servo_layout.addWidget(QLabel("摆动速度"), 3, 0)
+        servo_layout.addWidget(self.swing_speed_spin, 3, 1)
+
+        servo_hint = QLabel("左右角度是机械安全边界；幅度按两侧边界同比缩放。先应用并试摆，确认不碰结构后再保存到 Flash。")
+        servo_hint.setWordWrap(True)
+        servo_hint.setProperty("muted", True)
+        servo_layout.addWidget(servo_hint, 4, 0, 1, 2)
+
+        servo_buttons = QHBoxLayout()
+        self.servo_apply_btn = QPushButton("应用（不保存）")
+        self.servo_test_btn = QPushButton("开始试摆")
+        self.servo_test_btn.setCheckable(True)
+        self.servo_save_btn = QPushButton("保存到 Flash")
+        self.servo_save_btn.setProperty("primary", True)
+        servo_buttons.addWidget(self.servo_apply_btn)
+        servo_buttons.addWidget(self.servo_test_btn)
+        servo_buttons.addWidget(self.servo_save_btn)
+        servo_layout.addLayout(servo_buttons, 5, 0, 1, 2)
+        root.addWidget(servo_group)
+        self._set_servo_controls_enabled(False)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
         close_button = buttons.button(QDialogButtonBox.Close)
         if close_button is not None:
@@ -174,6 +228,9 @@ class MainWindow(QMainWindow):
         self.remote_control_check.toggled.connect(self._on_remote_control_toggled)
         self.four_g_check.toggled.connect(self._on_four_g_toggled)
         self.psdk_check.toggled.connect(self._on_psdk_toggled)
+        self.servo_apply_btn.clicked.connect(lambda: self._send_servo_limits(False))
+        self.servo_save_btn.clicked.connect(lambda: self._send_servo_limits(True))
+        self.servo_test_btn.clicked.connect(self._on_servo_test_clicked)
 
     def open_serial(self, port: str, baudrate: int) -> None:
         if self.worker is not None:
@@ -231,6 +288,8 @@ class MainWindow(QMainWindow):
         self._set_param_check(self.remote_control_check, False, False)
         self._set_param_check(self.four_g_check, False, False)
         self._set_param_check(self.psdk_check, False, False)
+        self._set_servo_controls_enabled(False)
+        self._set_servo_test_state(False)
         self._refresh_ready_state()
 
     def on_worker_finished(self) -> None:
@@ -333,6 +392,11 @@ class MainWindow(QMainWindow):
         self._set_param_check(self.remote_control_check, info.remote_control_enabled, self.connected)
         self._set_param_check(self.four_g_check, info.four_g_enabled, self.connected)
         self._set_param_check(self.psdk_check, info.psdk_enabled, self.connected)
+        if info.servo_limits_supported:
+            self._set_servo_limit_values(info.servo_left_limit_deg, info.servo_right_limit_deg)
+            self._set_servo_motion_values(info.swing_amplitude_percent, info.swing_speed_percent)
+            self._set_servo_test_state(info.servo_swing_running)
+        self._set_servo_controls_enabled(self.connected and info.servo_limits_supported)
         self.log_panel.append(
             f"设备信息：固件={info.firmware_version or '-'} inner={info.inner_version or '-'} 硬件={info.hardware_version or '-'}"
         )
@@ -350,6 +414,17 @@ class MainWindow(QMainWindow):
         self._set_param_check(self.remote_control_check, bool(params.get("remoteControlEnabled", False)), self.connected)
         self._set_param_check(self.four_g_check, bool(params.get("fourGEnabled", False)), self.connected)
         self._set_param_check(self.psdk_check, bool(params.get("psdkEnabled", False)), self.connected)
+        if self.device_info is not None and self.device_info.servo_limits_supported:
+            self._set_servo_limit_values(
+                float(params.get("servoLeftLimitDeg", 0.0)),
+                float(params.get("servoRightLimitDeg", 0.0)),
+            )
+            self._set_servo_motion_values(
+                int(params.get("swingAmplitudePercent", 100)),
+                int(params.get("swingSpeedPercent", 0)),
+            )
+            self._set_servo_test_state(bool(params.get("servoSwingRunning", False)))
+            self._set_servo_controls_enabled(self.connected)
         self.param_status_label.setText("参数已保存")
         self.log_panel.append(
             "参数："
@@ -383,6 +458,64 @@ class MainWindow(QMainWindow):
             return
         self.worker.send(proto.build_set_device_param_command(name, checked))
         self.log_panel.append(f"> SET_DEVICE_PARAM {name} {'1' if checked else '0'}")
+
+    def _set_servo_controls_enabled(self, enabled: bool) -> None:
+        self.servo_left_limit_spin.setEnabled(enabled)
+        self.servo_right_limit_spin.setEnabled(enabled)
+        self.swing_amplitude_spin.setEnabled(enabled)
+        self.swing_speed_spin.setEnabled(enabled)
+        self.servo_apply_btn.setEnabled(enabled)
+        self.servo_test_btn.setEnabled(enabled)
+        self.servo_save_btn.setEnabled(enabled)
+
+    def _set_servo_limit_values(self, left_deg: float, right_deg: float) -> None:
+        self.servo_left_limit_spin.blockSignals(True)
+        self.servo_right_limit_spin.blockSignals(True)
+        self.servo_left_limit_spin.setValue(left_deg)
+        self.servo_right_limit_spin.setValue(right_deg)
+        self.servo_left_limit_spin.blockSignals(False)
+        self.servo_right_limit_spin.blockSignals(False)
+
+    def _set_servo_motion_values(self, amplitude_percent: int, speed_percent: int) -> None:
+        self.swing_amplitude_spin.blockSignals(True)
+        self.swing_speed_spin.blockSignals(True)
+        self.swing_amplitude_spin.setValue(amplitude_percent)
+        self.swing_speed_spin.setValue(speed_percent)
+        self.swing_amplitude_spin.blockSignals(False)
+        self.swing_speed_spin.blockSignals(False)
+
+    def _set_servo_test_state(self, running: bool) -> None:
+        self.servo_test_btn.blockSignals(True)
+        self.servo_test_btn.setChecked(running)
+        self.servo_test_btn.setText("停止试摆" if running else "开始试摆")
+        self.servo_test_btn.blockSignals(False)
+
+    def _send_servo_limits(self, save: bool) -> None:
+        if not self.connected or self.worker is None:
+            return
+        left_deg = self.servo_left_limit_spin.value()
+        right_deg = self.servo_right_limit_spin.value()
+        amplitude_percent = self.swing_amplitude_spin.value()
+        speed_percent = self.swing_speed_spin.value()
+        self.worker.send(proto.build_set_servo_limits_command(left_deg, right_deg, False))
+        self.worker.send(proto.build_set_servo_motion_command(amplitude_percent, speed_percent, save))
+        self.param_status_label.setText("正在保存舵机参数" if save else "舵机参数已应用，尚未保存")
+        self.log_panel.append(
+            f"> SET_SERVO_LIMITS left={left_deg:.1f} right={right_deg:.1f} save=0"
+        )
+        self.log_panel.append(
+            f"> SET_SERVO_MOTION amplitude={amplitude_percent} speed={speed_percent} save={int(save)}"
+        )
+
+    def _on_servo_test_clicked(self, checked: bool) -> None:
+        if not self.connected or self.worker is None:
+            self._set_servo_test_state(False)
+            return
+        if checked:
+            self._send_servo_limits(False)
+        self.worker.send(proto.build_set_servo_swing_command(checked))
+        self._set_servo_test_state(checked)
+        self.log_panel.append(f"> SET_SERVO_SWING {1 if checked else 0}")
 
     def _handle_ready_ack(self, msg: dict[str, Any]) -> None:
         if msg.get("ok") is not True:
@@ -451,6 +584,16 @@ class MainWindow(QMainWindow):
 
     def _send_probe_commands(self) -> None:
         if not self.worker:
+            return
+        if self.handshake_send_count >= HANDSHAKE_MAX_SEND_COUNT:
+            self.handshake_timer.stop()
+            self.handshake_active = False
+            self.upgrade_panel.set_status(
+                "设备无响应",
+                "未收到设备握手应答，请检查串口、数据线并重新连接。",
+                None,
+            )
+            self.log_panel.append("Auto enter timed out; probe stopped")
             return
         self.worker.send(proto.build_device_info_command())
         self.worker.send(proto.build_enter_command())

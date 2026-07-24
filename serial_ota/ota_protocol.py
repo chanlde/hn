@@ -49,6 +49,26 @@ def build_set_device_param_command(name: str, enabled: bool) -> bytes:
     return f"SET_DEVICE_PARAM {name} {value}\r\n".encode("ascii")
 
 
+def build_set_servo_limits_command(left_deg: float, right_deg: float, save: bool) -> bytes:
+    left_x10 = round(left_deg * 10.0)
+    right_x10 = round(right_deg * 10.0)
+    if not 0 <= left_x10 <= 900 or not 0 <= right_x10 <= 900:
+        raise ValueError("servo limits must be between 0.0 and 90.0 degrees")
+    return f"SET_SERVO_LIMITS {left_x10} {right_x10} {1 if save else 0}\r\n".encode("ascii")
+
+
+def build_set_servo_motion_command(amplitude_percent: int, speed_percent: int, save: bool) -> bytes:
+    if not isinstance(amplitude_percent, int) or not isinstance(speed_percent, int):
+        raise ValueError("servo motion values must be integers")
+    if not 0 <= amplitude_percent <= 100 or not 0 <= speed_percent <= 100:
+        raise ValueError("servo motion values must be between 0 and 100 percent")
+    return f"SET_SERVO_MOTION {amplitude_percent} {speed_percent} {1 if save else 0}\r\n".encode("ascii")
+
+
+def build_set_servo_swing_command(enabled: bool) -> bytes:
+    return f"SET_SERVO_SWING {1 if enabled else 0}\r\n".encode("ascii")
+
+
 def validate_device_param_name(name: str) -> None:
     if name not in {"failsafeHoldEnabled", "remoteControlEnabled", "fourGEnabled", "psdkEnabled"}:
         raise ValueError(f"unsupported device param: {name}")
@@ -124,12 +144,21 @@ class DeviceInfo:
     remote_control_enabled: bool = False
     four_g_enabled: bool = False
     psdk_enabled: bool = False
+    servo_left_limit_deg: float = 0.0
+    servo_right_limit_deg: float = 0.0
+    swing_amplitude_percent: int = 100
+    swing_speed_percent: int = 0
+    servo_swing_running: bool = False
+    servo_limits_supported: bool = False
 
 
 def parse_device_info(msg: dict[str, Any]) -> DeviceInfo:
     ext_params = msg.get("extParams", {})
     if not isinstance(ext_params, dict):
         ext_params = {}
+    capabilities = msg.get("capabilities", [])
+    if not isinstance(capabilities, list):
+        capabilities = []
     return DeviceInfo(
         product_name=str(msg.get("productName", "")),
         product_id=str(msg.get("productId", "")),
@@ -152,10 +181,16 @@ def parse_device_info(msg: dict[str, Any]) -> DeviceInfo:
         remote_control_enabled=bool(ext_params.get("remoteControlEnabled", True)),
         four_g_enabled=bool(ext_params.get("fourGEnabled", False)),
         psdk_enabled=bool(ext_params.get("psdkEnabled", False)),
+        servo_left_limit_deg=float(ext_params.get("servoLeftLimitDegX10", 0) or 0) / 10.0,
+        servo_right_limit_deg=float(ext_params.get("servoRightLimitDegX10", 0) or 0) / 10.0,
+        swing_amplitude_percent=int(ext_params.get("swingAmplitudePercent", 100) or 0),
+        swing_speed_percent=int(ext_params.get("swingSpeedPercent", 0) or 0),
+        servo_swing_running=bool(ext_params.get("servoSwingRunning", False)),
+        servo_limits_supported="servo_limit_calibration" in capabilities,
     )
 
 
-def parse_ext_params(msg: dict[str, Any]) -> dict[str, bool]:
+def parse_ext_params(msg: dict[str, Any]) -> dict[str, Any]:
     ext_params = msg.get("extParams", {})
     if not isinstance(ext_params, dict):
         return {}
@@ -164,4 +199,9 @@ def parse_ext_params(msg: dict[str, Any]) -> dict[str, bool]:
         "remoteControlEnabled": bool(ext_params.get("remoteControlEnabled", True)),
         "fourGEnabled": bool(ext_params.get("fourGEnabled", False)),
         "psdkEnabled": bool(ext_params.get("psdkEnabled", False)),
+        "servoLeftLimitDeg": float(ext_params.get("servoLeftLimitDegX10", 0) or 0) / 10.0,
+        "servoRightLimitDeg": float(ext_params.get("servoRightLimitDegX10", 0) or 0) / 10.0,
+        "swingAmplitudePercent": int(ext_params.get("swingAmplitudePercent", 100) or 0),
+        "swingSpeedPercent": int(ext_params.get("swingSpeedPercent", 0) or 0),
+        "servoSwingRunning": bool(ext_params.get("servoSwingRunning", False)),
     }

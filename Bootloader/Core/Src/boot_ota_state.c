@@ -7,6 +7,9 @@
 #include <stddef.h>
 #include <string.h>
 
+#define BOOT_DS800_PARAM_OFFSET         0x00001000UL
+#define BOOT_DS800_PARAM_PRESERVE_BYTES 256UL
+
 static uint32_t crc32_update(uint32_t crc, uint8_t data)
 {
     crc ^= data;
@@ -48,8 +51,14 @@ int BootOtaState_Load(T_OtaInfo *out)
 
 int BootOtaState_Save(T_OtaInfo *info)
 {
+    uint8_t ds800Param[BOOT_DS800_PARAM_PRESERVE_BYTES];
+
     if (info == NULL)
         return -1;
+
+    memcpy(ds800Param,
+           (const void *)(OTA_STATE_BASE + BOOT_DS800_PARAM_OFFSET),
+           sizeof(ds800Param));
 
     info->magic = OTA_INFO_MAGIC;
     info->structVersion = OTA_INFO_STRUCT_VERSION;
@@ -57,7 +66,11 @@ int BootOtaState_Save(T_OtaInfo *info)
 
     if (BootFlash_Erase(OTA_STATE_BASE, OTA_STATE_END) != 0)
         return -1;
-    return BootFlash_Write(OTA_STATE_BASE, (const uint8_t *)info, (uint32_t)sizeof(*info));
+    if (BootFlash_Write(OTA_STATE_BASE, (const uint8_t *)info, (uint32_t)sizeof(*info)) != 0)
+        return -1;
+    return BootFlash_Write(OTA_STATE_BASE + BOOT_DS800_PARAM_OFFSET,
+                          ds800Param,
+                          (uint32_t)sizeof(ds800Param));
 }
 
 static int boot_stack_pointer_valid(uint32_t sp)

@@ -48,7 +48,6 @@
 #define PWM_SWING_OFFSET_POS_MAX_DEG    PWM_SWING_CALIBRATION_DEG_MAX_F
 #define PWM_SWING_MIN_VALUE             PWM_SWING_MIN_VALUE_US
 #define PWM_SWING_MAX_VALUE             PWM_SWING_MAX_VALUE_US
-#define PWM_SWING_MIN_WINDOW_US         100     /* 最小摆动窗口，避免卡死 */
 
 /* 舵机控制参数 */
 #define PWM_SERVO_FREQ_HZ              50      /* 舵机频率：50Hz（20ms周期） */
@@ -79,6 +78,7 @@ typedef enum {
 
 /* Private variables ---------------------------------------------------------*/
 static volatile uint32_t s_swingSpeed = PWM_SWING_SPEED_DEFAULT;
+static volatile uint32_t s_swingSpeedUiPercent = 0U;
 static volatile uint32_t s_swingAmplitude = (PWM_SWING_MAX_VALUE - PWM_SWING_MIN_VALUE);
 static volatile uint32_t s_swingAmplitudeUiPercent = 100U;
 static uint32_t s_lastPwmValue = PWM_SWING_CENTER_VALUE;
@@ -123,7 +123,6 @@ static void CalculateVelocityProfile(uint32_t speed, uint16_t signalsPerCycle);
 static uint32_t StepTowardsU32(uint32_t current, uint32_t target, uint32_t maxStep);
 static void PwmSwing_UpdateSmoothParams(void);
 static void PwmSwing_ApplyEndpointTrim(float *minAngle, float *maxAngle);
-static uint8_t PwmSwing_IsEndpointTrimDefault(void);
 static uint32_t WaterPump_MapPressureToDutyPercent(uint32_t pressure);
 static void WaterPump_ApplyOutput(void);
 static void WaterPump_CheckAutoOff(void);
@@ -164,11 +163,11 @@ static uint32_t PwmSwing_OffsetDegToPulseUs(float offset_deg)
     } else {
         us = (float)PWM_SWING_CENTER_VALUE + o * (float)PWM_SWING_POS_US_PER_DEG;
     }
-    if (us < (float)PWM_SWING_MIN_VALUE) {
-        us = (float)PWM_SWING_MIN_VALUE;
+    if (us < (float)PWM_SWING_CALIBRATION_MIN_VALUE_US) {
+        us = (float)PWM_SWING_CALIBRATION_MIN_VALUE_US;
     }
-    if (us > (float)PWM_SWING_MAX_VALUE) {
-        us = (float)PWM_SWING_MAX_VALUE;
+    if (us > (float)PWM_SWING_CALIBRATION_MAX_VALUE_US) {
+        us = (float)PWM_SWING_CALIBRATION_MAX_VALUE_US;
     }
     return (uint32_t)(us + 0.5f);
 }
@@ -181,21 +180,6 @@ static float PwmSwing_PulseUsToOffsetDeg(uint32_t pulse_us)
         return (pu - (float)PWM_SWING_CENTER_VALUE) / (float)PWM_SWING_NEG_US_PER_DEG;
     }
     return (pu - (float)PWM_SWING_CENTER_VALUE) / (float)PWM_SWING_POS_US_PER_DEG;
-}
-
-static uint8_t PwmSwing_IsEndpointTrimDefault(void)
-{
-    float leftDiff = s_leftEndpointTrimDeg - PWM_SWING_LEFT_ENDPOINT_TRIM_DEG;
-    float rightDiff = s_rightEndpointTrimDeg - PWM_SWING_RIGHT_ENDPOINT_TRIM_DEG;
-
-    if (leftDiff < 0.0f) {
-        leftDiff = -leftDiff;
-    }
-    if (rightDiff < 0.0f) {
-        rightDiff = -rightDiff;
-    }
-
-    return (leftDiff < 0.05f && rightDiff < 0.05f) ? 1U : 0U;
 }
 
 /** 对左右摆动端点做机械安装误差微调；只影响摆动范围，不影响单点 SetAngle。 */
@@ -433,14 +417,19 @@ void PwmSwing_Stop(void)
  */
 void PwmSwing_SetSpeed(uint32_t speed)
 {
+    uint32_t span = PWM_SWING_SPEED_MAX - PWM_SWING_SPEED_MIN;
+    uint32_t uiPercent;
+
     if (speed < PWM_SWING_SPEED_MIN) {
         speed = PWM_SWING_SPEED_MIN;
     } else if (speed > PWM_SWING_SPEED_MAX) {
         speed = PWM_SWING_SPEED_MAX;
     }
+    uiPercent = ((speed - PWM_SWING_SPEED_MIN) * 100U + (span / 2U)) / span;
     taskENTER_CRITICAL();
     s_targetSpeed = speed;
     s_swingSpeed = speed;
+    s_swingSpeedUiPercent = uiPercent;
     taskEXIT_CRITICAL();
     DevCtrl_Logf("PwmSwing_SetSpeed=%lu", (unsigned long)speed);
 }
@@ -463,16 +452,7 @@ uint32_t PwmSwing_GetAmplitude(void)
 
 uint32_t PwmSwing_GetSpeedPercent(void)
 {
-    uint32_t speed = s_swingSpeed;
-    uint32_t span = PWM_SWING_SPEED_MAX - PWM_SWING_SPEED_MIN;
-
-    if (speed <= PWM_SWING_SPEED_MIN) {
-        return 0U;
-    }
-    if (speed >= PWM_SWING_SPEED_MAX) {
-        return 100U;
-    }
-    return ((speed - PWM_SWING_SPEED_MIN) * 100U + (span / 2U)) / span;
+    return s_swingSpeedUiPercent;
 }
 
 uint32_t PwmSwing_GetAmplitudePercent(void)
@@ -497,28 +477,23 @@ void PwmSwing_SetSpeedFromUI(uint32_t uiSpeed)
     speed = PWM_SWING_SPEED_MIN +
             (uiSpeed * (PWM_SWING_SPEED_MAX - PWM_SWING_SPEED_MIN)) / 100U;
     PwmSwing_SetSpeed(speed);
+    taskENTER_CRITICAL();
+    s_swingSpeedUiPercent = uiSpeed;
+    taskEXIT_CRITICAL();
 }
 
 void PwmSwing_SetPwmRange(uint32_t minPwm, uint32_t maxPwm)
 {
-    uint32_t center;
-
-    if (minPwm < PWM_SWING_MIN_VALUE) {
-        minPwm = PWM_SWING_MIN_VALUE;
+    if (minPwm < PWM_SWING_CALIBRATION_MIN_VALUE_US) {
+        minPwm = PWM_SWING_CALIBRATION_MIN_VALUE_US;
     }
-    if (maxPwm > PWM_SWING_MAX_VALUE) {
-        maxPwm = PWM_SWING_MAX_VALUE;
+    if (maxPwm > PWM_SWING_CALIBRATION_MAX_VALUE_US) {
+        maxPwm = PWM_SWING_CALIBRATION_MAX_VALUE_US;
     }
-    if (minPwm + PWM_SWING_MIN_WINDOW_US > maxPwm) {
-        center = (minPwm + maxPwm) / 2U;
-        if (center < (PWM_SWING_MIN_VALUE + PWM_SWING_MIN_WINDOW_US / 2U)) {
-            center = PWM_SWING_MIN_VALUE + PWM_SWING_MIN_WINDOW_US / 2U;
-        }
-        if (center > (PWM_SWING_MAX_VALUE - PWM_SWING_MIN_WINDOW_US / 2U)) {
-            center = PWM_SWING_MAX_VALUE - PWM_SWING_MIN_WINDOW_US / 2U;
-        }
-        minPwm = center - PWM_SWING_MIN_WINDOW_US / 2U;
-        maxPwm = center + PWM_SWING_MIN_WINDOW_US / 2U;
+    if (minPwm > maxPwm) {
+        uint32_t tmp = minPwm;
+        minPwm = maxPwm;
+        maxPwm = tmp;
     }
 
     taskENTER_CRITICAL();
@@ -541,6 +516,14 @@ uint32_t PwmSwing_GetCurrentPwm(void)
  */
 void PwmSwing_SetAngle(float angle_deg)
 {
+    float minAngle = PWM_SWING_CENTER_ANGLE_DEG - PWM_SWING_AMPLITUDE_DEG_MAX_F;
+    float maxAngle = PWM_SWING_CENTER_ANGLE_DEG + PWM_SWING_AMPLITUDE_DEG_MAX_F;
+    PwmSwing_ApplyEndpointTrim(&minAngle, &maxAngle);
+    if (angle_deg < minAngle) {
+        angle_deg = minAngle;
+    } else if (angle_deg > maxAngle) {
+        angle_deg = maxAngle;
+    }
     uint32_t us = PwmSwing_AbsoluteAngleToPulseUs(angle_deg);
 
     taskENTER_CRITICAL();
@@ -578,8 +561,6 @@ void PwmSwing_SetRange(float minAngle, float maxAngle)
 {
     float a0 = minAngle;
     float a1 = maxAngle;
-    uint32_t limitMinPwm;
-    uint32_t limitMaxPwm;
     if (a0 > a1) {
         float t = a0;
         a0 = a1;
@@ -594,19 +575,6 @@ void PwmSwing_SetRange(float minAngle, float maxAngle)
     PwmSwing_ApplyEndpointTrim(&a0, &a1);
     uint32_t minPwm = PwmSwing_AbsoluteAngleToPulseUs(a0);
     uint32_t maxPwm = PwmSwing_AbsoluteAngleToPulseUs(a1);
-    if (PwmSwing_IsEndpointTrimDefault()) {
-        limitMinPwm = PWM_SWING_MIN_VALUE;
-        limitMaxPwm = PWM_SWING_MAX_VALUE;
-    } else {
-        limitMinPwm = PWM_SWING_CALIBRATION_MIN_VALUE_US;
-        limitMaxPwm = PWM_SWING_CALIBRATION_MAX_VALUE_US;
-    }
-    if (minPwm < limitMinPwm) {
-        minPwm = limitMinPwm;
-    }
-    if (maxPwm > limitMaxPwm) {
-        maxPwm = limitMaxPwm;
-    }
     PwmSwing_SetPwmRange(minPwm, maxPwm);
 }
 
@@ -645,6 +613,9 @@ void PwmSwing_GetEndpointTrimDeg(float *leftTrimDeg, float *rightTrimDeg)
 void PwmSwing_SetAmplitudeDeg(float amplitudeDeg)
 {
     float a = amplitudeDeg;
+    float scale;
+    float leftLimitDeg;
+    float rightLimitDeg;
     uint32_t uiPercent;
 
     if (a < 0.0f) {
@@ -680,7 +651,17 @@ void PwmSwing_SetAmplitudeDeg(float amplitudeDeg)
         return;
     }
 
-    PwmSwing_SetRange(PWM_SWING_CENTER_ANGLE_DEG - a, PWM_SWING_CENTER_ANGLE_DEG + a);
+    scale = a / PWM_SWING_AMPLITUDE_DEG_MAX_F;
+    leftLimitDeg = (PWM_SWING_AMPLITUDE_DEG_MAX_F + s_leftEndpointTrimDeg) * scale;
+    rightLimitDeg = (PWM_SWING_AMPLITUDE_DEG_MAX_F + s_rightEndpointTrimDeg) * scale;
+    if (leftLimitDeg < 0.0f) {
+        leftLimitDeg = 0.0f;
+    }
+    if (rightLimitDeg < 0.0f) {
+        rightLimitDeg = 0.0f;
+    }
+    PwmSwing_SetPwmRange(PwmSwing_AbsoluteAngleToPulseUs(PWM_SWING_CENTER_ANGLE_DEG - leftLimitDeg),
+                         PwmSwing_AbsoluteAngleToPulseUs(PWM_SWING_CENTER_ANGLE_DEG + rightLimitDeg));
     taskENTER_CRITICAL();
     s_swingAmplitudeUiPercent = uiPercent;
     taskEXIT_CRITICAL();
@@ -950,15 +931,6 @@ static void PwmSwing_UpdateSmoothParams(void)
         newMax = s_targetMaxPwm;
     }
     taskEXIT_CRITICAL();
-
-    if (newMin != newMax && newMin + PWM_SWING_MIN_WINDOW_US > newMax) {
-        if (newMax > PWM_SWING_MIN_WINDOW_US) {
-            newMin = newMax - PWM_SWING_MIN_WINDOW_US;
-        } else {
-            newMin = PWM_SWING_MIN_VALUE;
-            newMax = PWM_SWING_MIN_VALUE + PWM_SWING_MIN_WINDOW_US;
-        }
-    }
 
     if (newSpeed != s_currentSpeed) {
         s_currentSpeed = newSpeed;

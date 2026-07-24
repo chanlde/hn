@@ -24,6 +24,26 @@ STM32H7 carrier-board firmware project with DJI PSDK integration, 4G/MQTT servic
 
 ## Release Notes
 
+### 2026-07-23 - V0.1.18 / inner 28
+
+- Fixed Bootloader OTA-state updates erasing DS800/device parameters; the complete reserved parameter block is now preserved across every Bootloader state write.
+
+### 2026-07-23 - V0.1.17 / inner 27
+
+- Fixed swing-speed percentage drift after saving and rebooting by preserving the exact UI percentage independently of the internal integer speed step.
+
+### 2026-07-23 - V0.1.16 / inner 26
+
+- Added Flash-backed servo swing amplitude and speed percentages to the serial PC tool.
+- The configured left/right boundaries are the unified mechanical safety limits for PSDK, DS800 remote control, 4G/MQTT, and serial test swing commands.
+- Preserved version-4 parameter data and migrates it with 100% amplitude and minimum speed defaults.
+
+### 2026-07-23 - V0.1.15 / inner 25
+
+- Added independent left/right servo boundary calibration, dry test swing, and Flash persistence in the serial PC tool.
+- Fixed truncated `GET_DEVICE_INFO` JSON that caused the serial handshake to repeat continuously.
+- Added a bounded handshake timeout so the PC tool stops retrying when a device does not answer.
+
 ### 2026-06-22 - V0.1.10 / inner 20
 
 - Added Flash-backed extension switches for remote control, 4G, and PSDK.

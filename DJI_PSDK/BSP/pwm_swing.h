@@ -15,7 +15,7 @@ extern "C" {
 #include <stdint.h>
 
 /* 单边最大摆幅唯一配置点：改这里即可同步底层 PWM、MQTT 校验和 PSDK Widget 默认范围。 */
-#define PWM_SWING_AMPLITUDE_DEG_MAX     40U
+#define PWM_SWING_AMPLITUDE_DEG_MAX     36U
 #define PWM_SWING_AMPLITUDE_DEG_MAX_F   ((float)PWM_SWING_AMPLITUDE_DEG_MAX)
 #define PWM_SWING_CALIBRATION_DEG_MAX   90U
 #define PWM_SWING_CALIBRATION_DEG_MAX_F ((float)PWM_SWING_CALIBRATION_DEG_MAX)

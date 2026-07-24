@@ -56,7 +56,7 @@
 #define DS800_PWM_VALID_MAX_US             2200U
 #define DS800_PARAM_STORE_ADDRESS          (APPLICATION_PARAM_STORE_ADDRESS + DS800_PARAM_STORE_OFFSET)
 #define DS800_PARAM_MAGIC                  0x44383030UL
-#define DS800_PARAM_VERSION                4UL
+#define DS800_PARAM_VERSION                5UL
 
 typedef enum {
     DS800_DIR_NEUTRAL = 0,
@@ -104,6 +104,22 @@ typedef struct {
     uint32_t remoteControlEnabled;
     uint32_t fourGEnabled;
     uint32_t psdkEnabled;
+    uint32_t crc32;
+} T_Ds800ParamStoreV4;
+
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t pressurePercent;
+    int32_t fixedAngleX10;
+    int32_t leftEndpointTrimX10;
+    int32_t rightEndpointTrimX10;
+    uint32_t failsafeHoldEnabled;
+    uint32_t remoteControlEnabled;
+    uint32_t fourGEnabled;
+    uint32_t psdkEnabled;
+    uint32_t swingAmplitudePercent;
+    uint32_t swingSpeedPercent;
     uint32_t crc32;
 } T_Ds800ParamStore;
 
@@ -437,13 +453,15 @@ static int32_t clamp_fixed_angle_x10(int32_t angleX10)
 
 static int32_t clamp_endpoint_trim_x10(int32_t trimX10)
 {
-    int32_t limitX10 = (int32_t)PWM_SWING_CALIBRATION_DEG_MAX * 10;
+    int32_t minTrimX10 = -((int32_t)PWM_SWING_AMPLITUDE_DEG_MAX * 10);
+    int32_t maxTrimX10 = ((int32_t)PWM_SWING_CALIBRATION_DEG_MAX -
+                          (int32_t)PWM_SWING_AMPLITUDE_DEG_MAX) * 10;
 
-    if (trimX10 < -limitX10) {
-        return -limitX10;
+    if (trimX10 < minTrimX10) {
+        return minTrimX10;
     }
-    if (trimX10 > limitX10) {
-        return limitX10;
+    if (trimX10 > maxTrimX10) {
+        return maxTrimX10;
     }
     return trimX10;
 }
@@ -455,6 +473,14 @@ static void apply_endpoint_trim(void)
     PwmSwing_SetEndpointTrimDeg((float)s_leftEndpointTrimX10 / 10.0f,
                                 (float)s_rightEndpointTrimX10 / 10.0f);
     s_fixedAngleDegX10 = clamp_fixed_angle_x10(s_fixedAngleDegX10);
+}
+
+static void apply_swing_motion_config(void)
+{
+    s_swingAmplitudePercent = clamp_percent_i32((int32_t)s_swingAmplitudePercent);
+    s_swingSpeedPercent = clamp_percent_i32((int32_t)s_swingSpeedPercent);
+    PwmSwing_SetAmplitudeDeg(((float)s_swingAmplitudePercent * PWM_SWING_AMPLITUDE_DEG_MAX_F) / 100.0f);
+    PwmSwing_SetSpeedFromUI(s_swingSpeedPercent);
 }
 
 #if DS800_ENABLE_CHANNEL_TRACE
@@ -603,6 +629,8 @@ static void set_default_persistent_params(void)
     s_remoteControlEnabled = 1U;
     s_fourGEnabled = 1U;
     s_psdkEnabled = 1U;
+    s_swingAmplitudePercent = 100U;
+    s_swingSpeedPercent = 0U;
 }
 
 static void reset_remote_control_state(uint8_t stopOutput)
@@ -757,10 +785,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 static void load_persistent_params(void)
 {
     const T_Ds800ParamStore *stored = (const T_Ds800ParamStore *)DS800_PARAM_STORE_ADDRESS;
+    const T_Ds800ParamStoreV4 *storedV4 = (const T_Ds800ParamStoreV4 *)DS800_PARAM_STORE_ADDRESS;
     const T_Ds800ParamStoreV3 *storedV3 = (const T_Ds800ParamStoreV3 *)DS800_PARAM_STORE_ADDRESS;
     const T_Ds800ParamStoreV2 *storedV2 = (const T_Ds800ParamStoreV2 *)DS800_PARAM_STORE_ADDRESS;
     const T_Ds800ParamStoreV1 *storedV1 = (const T_Ds800ParamStoreV1 *)DS800_PARAM_STORE_ADDRESS;
     T_Ds800ParamStore tmp;
+    T_Ds800ParamStoreV4 tmpV4;
     T_Ds800ParamStoreV3 tmpV3;
     T_Ds800ParamStoreV2 tmpV2;
     T_Ds800ParamStoreV1 tmpV1;
@@ -786,8 +816,30 @@ static void load_persistent_params(void)
         s_remoteControlEnabled = (tmp.remoteControlEnabled != 0U) ? 1U : 0U;
         s_fourGEnabled = (tmp.fourGEnabled != 0U) ? 1U : 0U;
         s_psdkEnabled = (tmp.psdkEnabled != 0U) ? 1U : 0U;
+        s_swingAmplitudePercent = clamp_percent_i32((int32_t)tmp.swingAmplitudePercent);
+        s_swingSpeedPercent = clamp_percent_i32((int32_t)tmp.swingSpeedPercent);
         apply_endpoint_trim();
+        apply_swing_motion_config();
         log_flow("[DS800 FLOW] param load ok");
+    } else if (tmp.version == 4UL) {
+        memcpy(&tmpV4, storedV4, sizeof(tmpV4));
+        crc = calc_crc32(&tmpV4, (uint32_t)offsetof(T_Ds800ParamStoreV4, crc32));
+        if (crc != tmpV4.crc32) {
+            return;
+        }
+
+        s_pumpPressurePercent = clamp_percent_i32((int32_t)tmpV4.pressurePercent);
+        s_fixedAngleDegX10 = clamp_fixed_angle_x10(tmpV4.fixedAngleX10);
+        s_leftEndpointTrimX10 = clamp_endpoint_trim_x10(tmpV4.leftEndpointTrimX10);
+        s_rightEndpointTrimX10 = clamp_endpoint_trim_x10(tmpV4.rightEndpointTrimX10);
+        s_failsafeHoldEnabled = (tmpV4.failsafeHoldEnabled != 0U) ? 1U : 0U;
+        s_remoteControlEnabled = (tmpV4.remoteControlEnabled != 0U) ? 1U : 0U;
+        s_fourGEnabled = (tmpV4.fourGEnabled != 0U) ? 1U : 0U;
+        s_psdkEnabled = (tmpV4.psdkEnabled != 0U) ? 1U : 0U;
+        apply_endpoint_trim();
+        apply_swing_motion_config();
+        mark_param_dirty();
+        log_flow("[DS800 FLOW] param v4 load ok");
     } else if (tmp.version == 3UL) {
         memcpy(&tmpV3, storedV3, sizeof(tmpV3));
         crc = calc_crc32(&tmpV3, (uint32_t)offsetof(T_Ds800ParamStoreV3, crc32));
@@ -804,6 +856,7 @@ static void load_persistent_params(void)
         s_fourGEnabled = 1U;
         s_psdkEnabled = 1U;
         apply_endpoint_trim();
+        apply_swing_motion_config();
         mark_param_dirty();
         log_flow("[DS800 FLOW] param v3 load ok");
     } else if (tmp.version == 2UL) {
@@ -822,6 +875,7 @@ static void load_persistent_params(void)
         s_fourGEnabled = 1U;
         s_psdkEnabled = 1U;
         apply_endpoint_trim();
+        apply_swing_motion_config();
         mark_param_dirty();
         log_flow("[DS800 FLOW] param v2 load ok");
     } else if (tmp.version == 1UL) {
@@ -838,6 +892,7 @@ static void load_persistent_params(void)
         s_fourGEnabled = 1U;
         s_psdkEnabled = 1U;
         apply_endpoint_trim();
+        apply_swing_motion_config();
         mark_param_dirty();
         log_flow("[DS800 FLOW] param v1 load ok");
     }
@@ -872,6 +927,8 @@ static int save_persistent_params(void)
     store.remoteControlEnabled = s_remoteControlEnabled ? 1U : 0U;
     store.fourGEnabled = s_fourGEnabled ? 1U : 0U;
     store.psdkEnabled = s_psdkEnabled ? 1U : 0U;
+    store.swingAmplitudePercent = PwmSwing_GetAmplitudePercent();
+    store.swingSpeedPercent = PwmSwing_GetSpeedPercent();
     store.crc32 = calc_crc32(&store, (uint32_t)offsetof(T_Ds800ParamStore, crc32));
 
     result = FLASH_If_Erase(APPLICATION_PARAM_STORE_ADDRESS, APPLICATION_PARAM_STORE_ADDRESS_END);
@@ -1060,6 +1117,90 @@ int Ds800Protocol_SetPsdkEnabled(uint8_t enabled, uint8_t saveNow)
 
     log_param_set("psdk", oldValue, normalized, saveNow, 0);
     return 0;
+}
+
+int32_t Ds800Protocol_GetServoLeftLimitX10(void)
+{
+    ensure_persistent_params_loaded();
+    return ((int32_t)PWM_SWING_AMPLITUDE_DEG_MAX * 10) + s_leftEndpointTrimX10;
+}
+
+int32_t Ds800Protocol_GetServoRightLimitX10(void)
+{
+    ensure_persistent_params_loaded();
+    return ((int32_t)PWM_SWING_AMPLITUDE_DEG_MAX * 10) + s_rightEndpointTrimX10;
+}
+
+int Ds800Protocol_SetServoLimitsX10(int32_t leftLimitX10, int32_t rightLimitX10, uint8_t saveNow)
+{
+    int32_t maxLimitX10 = (int32_t)PWM_SWING_CALIBRATION_DEG_MAX * 10;
+
+    ensure_persistent_params_loaded();
+    if (leftLimitX10 < 0 || leftLimitX10 > maxLimitX10 ||
+        rightLimitX10 < 0 || rightLimitX10 > maxLimitX10) {
+        return -2;
+    }
+
+    s_leftEndpointTrimX10 = leftLimitX10 - ((int32_t)PWM_SWING_AMPLITUDE_DEG_MAX * 10);
+    s_rightEndpointTrimX10 = rightLimitX10 - ((int32_t)PWM_SWING_AMPLITUDE_DEG_MAX * 10);
+    apply_endpoint_trim();
+
+    if (saveNow) {
+#if !DS800_ENABLE_UART2_LOOPBACK_TEST
+        if (save_persistent_params() != 0) {
+            return -1;
+        }
+#endif
+    }
+    return 0;
+}
+
+uint32_t Ds800Protocol_GetSwingAmplitudePercent(void)
+{
+    ensure_persistent_params_loaded();
+    return PwmSwing_GetAmplitudePercent();
+}
+
+uint32_t Ds800Protocol_GetSwingSpeedPercent(void)
+{
+    ensure_persistent_params_loaded();
+    return PwmSwing_GetSpeedPercent();
+}
+
+int Ds800Protocol_SetSwingMotionPercent(uint32_t amplitudePercent, uint32_t speedPercent, uint8_t saveNow)
+{
+    ensure_persistent_params_loaded();
+    if (amplitudePercent > 100U || speedPercent > 100U) {
+        return -2;
+    }
+
+    s_swingAmplitudePercent = amplitudePercent;
+    s_swingSpeedPercent = speedPercent;
+    apply_swing_motion_config();
+
+    if (saveNow) {
+#if !DS800_ENABLE_UART2_LOOPBACK_TEST
+        if (save_persistent_params() != 0) {
+            return -1;
+        }
+#endif
+    }
+    return 0;
+}
+
+void Ds800Protocol_SetServoSwingTest(uint8_t enabled)
+{
+    if (enabled) {
+        apply_swing_motion_config();
+        PwmSwing_Start();
+    } else {
+        PwmSwing_Stop();
+    }
+}
+
+uint8_t Ds800Protocol_GetServoSwingRunning(void)
+{
+    return PwmSwing_IsRunning() ? 1U : 0U;
 }
 
 static void apply_fixed_angle(uint8_t force)

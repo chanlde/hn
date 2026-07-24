@@ -6,7 +6,7 @@
 #include <stddef.h>
 #include <string.h>
 
-#define SOLARCLEAN_OTA_PRESERVE_DS800_PARAM_BYTES 64U
+#define SOLARCLEAN_OTA_PRESERVE_DS800_PARAM_BYTES 256U
 
 static uint32_t ota_state_crc32_update(uint32_t crc, uint8_t data)
 {

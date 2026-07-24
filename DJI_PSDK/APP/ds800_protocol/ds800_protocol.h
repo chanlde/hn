@@ -57,6 +57,14 @@ uint8_t Ds800Protocol_GetFourGEnabled(void);
 int Ds800Protocol_SetFourGEnabled(uint8_t enabled, uint8_t saveNow);
 uint8_t Ds800Protocol_GetPsdkEnabled(void);
 int Ds800Protocol_SetPsdkEnabled(uint8_t enabled, uint8_t saveNow);
+int32_t Ds800Protocol_GetServoLeftLimitX10(void);
+int32_t Ds800Protocol_GetServoRightLimitX10(void);
+int Ds800Protocol_SetServoLimitsX10(int32_t leftLimitX10, int32_t rightLimitX10, uint8_t saveNow);
+void Ds800Protocol_SetServoSwingTest(uint8_t enabled);
+uint8_t Ds800Protocol_GetServoSwingRunning(void);
+uint32_t Ds800Protocol_GetSwingAmplitudePercent(void);
+uint32_t Ds800Protocol_GetSwingSpeedPercent(void);
+int Ds800Protocol_SetSwingMotionPercent(uint32_t amplitudePercent, uint32_t speedPercent, uint8_t saveNow);
 
 #ifdef __cplusplus
 }

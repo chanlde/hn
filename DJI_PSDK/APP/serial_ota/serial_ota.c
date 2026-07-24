@@ -23,6 +23,9 @@
 
 #define SERIAL_OTA_CMD_GET_INFO         "GET_DEVICE_INFO"
 #define SERIAL_OTA_CMD_SET_DEVICE_PARAM "SET_DEVICE_PARAM"
+#define SERIAL_OTA_CMD_SET_SERVO_LIMITS "SET_SERVO_LIMITS"
+#define SERIAL_OTA_CMD_SET_SERVO_MOTION "SET_SERVO_MOTION"
+#define SERIAL_OTA_CMD_SET_SERVO_SWING  "SET_SERVO_SWING"
 
 #define SERIAL_OTA_MAGIC_0        'S'
 #define SERIAL_OTA_MAGIC_1        'C'
@@ -144,7 +147,7 @@ static void serial_ota_build_device_id(char *dst, uint32_t dstSize)
 
 static void serial_ota_send_device_info(void)
 {
-    char reply[768];
+    char reply[1024];
     char deviceIdRaw[32];
     char deviceId[40];
     char hardwareVersion[48];
@@ -154,6 +157,7 @@ static void serial_ota_send_device_info(void)
     char lastResult[32];
     char lastFailReason[80];
     char network[32];
+    int n;
 
     serial_ota_build_device_id(deviceIdRaw, sizeof(deviceIdRaw));
     serial_ota_json_escape(deviceId, sizeof(deviceId), deviceIdRaw);
@@ -165,7 +169,7 @@ static void serial_ota_send_device_info(void)
     serial_ota_json_escape(lastFailReason, sizeof(lastFailReason), SolarCleanOta_GetLastFailReason());
     serial_ota_json_escape(network, sizeof(network), SolarCleanOta_GetNetwork());
 
-    (void)snprintf(reply, sizeof(reply),
+    n = snprintf(reply, sizeof(reply),
                    "{\"type\":\"deviceInfo\",\"ok\":true,"
                    "\"protocol\":\"genericSerialOta\",\"protocolVersion\":%u,"
                    "\"productId\":\"SolarClean\",\"productCode\":\"SolarClean\","
@@ -179,8 +183,11 @@ static void serial_ota_send_device_info(void)
                    "\"network\":\"%s\",\"slotBSize\":%lu,\"maxChunk\":%u,"
                    "\"extParams\":{\"failsafeHoldEnabled\":%s,"
                    "\"remoteControlEnabled\":%s,"
-                   "\"fourGEnabled\":%s,\"psdkEnabled\":%s},"
-                   "\"capabilities\":[\"serial_ota\",\"device_params\"]}\r\n",
+                   "\"fourGEnabled\":%s,\"psdkEnabled\":%s,"
+                   "\"servoLeftLimitDegX10\":%ld,\"servoRightLimitDegX10\":%ld,"
+                   "\"swingAmplitudePercent\":%lu,\"swingSpeedPercent\":%lu,"
+                   "\"servoSwingRunning\":%s},"
+                   "\"capabilities\":[\"serial_ota\",\"device_params\",\"servo_limit_calibration\",\"servo_motion_config\"]}\r\n",
                    (unsigned)SERIAL_OTA_PROTOCOL_VERSION,
                    deviceId,
                    deviceId,
@@ -198,7 +205,18 @@ static void serial_ota_send_device_info(void)
                    Ds800Protocol_GetFailsafeHoldEnabled() ? "true" : "false",
                    Ds800Protocol_GetRemoteControlEnabled() ? "true" : "false",
                    Ds800Protocol_GetFourGEnabled() ? "true" : "false",
-                   Ds800Protocol_GetPsdkEnabled() ? "true" : "false");
+                   Ds800Protocol_GetPsdkEnabled() ? "true" : "false",
+                   (long)Ds800Protocol_GetServoLeftLimitX10(),
+                   (long)Ds800Protocol_GetServoRightLimitX10(),
+                   (unsigned long)Ds800Protocol_GetSwingAmplitudePercent(),
+                   (unsigned long)Ds800Protocol_GetSwingSpeedPercent(),
+                   Ds800Protocol_GetServoSwingRunning() ? "true" : "false");
+    if (n <= 0 || n >= (int)sizeof(reply)) {
+        serial_ota_write("{\"type\":\"deviceInfo\",\"ok\":false,\"code\":500,\"msg\":\"device info too long\"}\r\n");
+        serial_ota_debugf("[SERIAL_OTA] device info format overflow len=%d cap=%u",
+                          n, (unsigned)sizeof(reply));
+        return;
+    }
     serial_ota_write(reply);
     serial_ota_debugf("[SERIAL_OTA] device info sent fw=%s inner=%lu params=%u/%u/%u/%u",
                       SolarCleanOta_GetFirmwareVersion(),
@@ -211,17 +229,25 @@ static void serial_ota_send_device_info(void)
 
 static void serial_ota_send_device_params(void)
 {
-    char reply[240];
+    char reply[512];
 
     (void)snprintf(reply, sizeof(reply),
                    "{\"type\":\"deviceParams\",\"ok\":true,"
                    "\"extParams\":{\"failsafeHoldEnabled\":%s,"
                    "\"remoteControlEnabled\":%s,"
-                   "\"fourGEnabled\":%s,\"psdkEnabled\":%s}}\r\n",
+                   "\"fourGEnabled\":%s,\"psdkEnabled\":%s,"
+                   "\"servoLeftLimitDegX10\":%ld,\"servoRightLimitDegX10\":%ld,"
+                   "\"swingAmplitudePercent\":%lu,\"swingSpeedPercent\":%lu,"
+                   "\"servoSwingRunning\":%s}}\r\n",
                    Ds800Protocol_GetFailsafeHoldEnabled() ? "true" : "false",
                    Ds800Protocol_GetRemoteControlEnabled() ? "true" : "false",
                    Ds800Protocol_GetFourGEnabled() ? "true" : "false",
-                   Ds800Protocol_GetPsdkEnabled() ? "true" : "false");
+                   Ds800Protocol_GetPsdkEnabled() ? "true" : "false",
+                   (long)Ds800Protocol_GetServoLeftLimitX10(),
+                   (long)Ds800Protocol_GetServoRightLimitX10(),
+                   (unsigned long)Ds800Protocol_GetSwingAmplitudePercent(),
+                   (unsigned long)Ds800Protocol_GetSwingSpeedPercent(),
+                   Ds800Protocol_GetServoSwingRunning() ? "true" : "false");
     serial_ota_write(reply);
 }
 
@@ -489,6 +515,108 @@ static int serial_ota_handle_line(char *line)
             serial_ota_debug("[SERIAL_OTA] remote control disabled and outputs stopped");
         }
 
+        serial_ota_send_device_params();
+        return 0;
+    }
+
+    if (strncmp(cmd, SERIAL_OTA_CMD_SET_SERVO_LIMITS, strlen(SERIAL_OTA_CMD_SET_SERVO_LIMITS)) == 0) {
+        char *cursor = cmd + strlen(SERIAL_OTA_CMD_SET_SERVO_LIMITS);
+        char *leftText;
+        char *rightText;
+        char *saveText;
+        char *end;
+        long leftX10;
+        long rightX10;
+        uint8_t saveNow;
+        int result;
+
+        if (!serial_ota_next_token(&cursor, &leftText) ||
+            !serial_ota_next_token(&cursor, &rightText) ||
+            !serial_ota_next_token(&cursor, &saveText) ||
+            *serial_ota_trim(cursor) != '\0' ||
+            !serial_ota_parse_bool_value(saveText, &saveNow)) {
+            serial_ota_reply_error(400U, "bad servo limits command");
+            return 0;
+        }
+        leftX10 = strtol(leftText, &end, 10);
+        if (*leftText == '\0' || *end != '\0') {
+            serial_ota_reply_error(400U, "bad left servo limit");
+            return 0;
+        }
+        rightX10 = strtol(rightText, &end, 10);
+        if (*rightText == '\0' || *end != '\0') {
+            serial_ota_reply_error(400U, "bad right servo limit");
+            return 0;
+        }
+        result = Ds800Protocol_SetServoLimitsX10((int32_t)leftX10, (int32_t)rightX10, saveNow);
+        if (result == -2) {
+            serial_ota_reply_error(400U, "servo limit out of range");
+            return 0;
+        }
+        if (result != 0) {
+            serial_ota_reply_error(500U, "servo limits save failed");
+            return 0;
+        }
+        serial_ota_send_device_params();
+        return 0;
+    }
+
+    if (strncmp(cmd, SERIAL_OTA_CMD_SET_SERVO_MOTION, strlen(SERIAL_OTA_CMD_SET_SERVO_MOTION)) == 0) {
+        char *cursor = cmd + strlen(SERIAL_OTA_CMD_SET_SERVO_MOTION);
+        char *amplitudeText;
+        char *speedText;
+        char *saveText;
+        char *end;
+        unsigned long amplitudePercent;
+        unsigned long speedPercent;
+        uint8_t saveNow;
+        int result;
+
+        if (!serial_ota_next_token(&cursor, &amplitudeText) ||
+            !serial_ota_next_token(&cursor, &speedText) ||
+            !serial_ota_next_token(&cursor, &saveText) ||
+            *serial_ota_trim(cursor) != '\0' ||
+            !serial_ota_parse_bool_value(saveText, &saveNow)) {
+            serial_ota_reply_error(400U, "bad servo motion command");
+            return 0;
+        }
+        amplitudePercent = strtoul(amplitudeText, &end, 10);
+        if (*amplitudeText == '\0' || *end != '\0') {
+            serial_ota_reply_error(400U, "bad swing amplitude");
+            return 0;
+        }
+        speedPercent = strtoul(speedText, &end, 10);
+        if (*speedText == '\0' || *end != '\0') {
+            serial_ota_reply_error(400U, "bad swing speed");
+            return 0;
+        }
+        result = Ds800Protocol_SetSwingMotionPercent((uint32_t)amplitudePercent,
+                                                     (uint32_t)speedPercent,
+                                                     saveNow);
+        if (result == -2) {
+            serial_ota_reply_error(400U, "servo motion out of range");
+            return 0;
+        }
+        if (result != 0) {
+            serial_ota_reply_error(500U, "servo motion save failed");
+            return 0;
+        }
+        serial_ota_send_device_params();
+        return 0;
+    }
+
+    if (strncmp(cmd, SERIAL_OTA_CMD_SET_SERVO_SWING, strlen(SERIAL_OTA_CMD_SET_SERVO_SWING)) == 0) {
+        char *cursor = cmd + strlen(SERIAL_OTA_CMD_SET_SERVO_SWING);
+        char *value;
+        uint8_t enabled;
+
+        if (!serial_ota_next_token(&cursor, &value) ||
+            *serial_ota_trim(cursor) != '\0' ||
+            !serial_ota_parse_bool_value(value, &enabled)) {
+            serial_ota_reply_error(400U, "bad servo swing command");
+            return 0;
+        }
+        Ds800Protocol_SetServoSwingTest(enabled);
         serial_ota_send_device_params();
         return 0;
     }

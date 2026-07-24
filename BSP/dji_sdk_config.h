@@ -64,9 +64,9 @@ extern "C" {
 
 #define USER_FIRMWARE_MAJOR_VERSION         (0)
 #define USER_FIRMWARE_MINOR_VERSION         (1)
-#define USER_FIRMWARE_MODIFY_VERSION        (13)
+#define USER_FIRMWARE_MODIFY_VERSION        (18)
 #define USER_FIRMWARE_DEBUG_VERSION         (0)
-#define USER_FIRMWARE_INNER_VERSION         (23)
+#define USER_FIRMWARE_INNER_VERSION         (28)
 
 /* Exported types ------------------------------------------------------------*/
 
